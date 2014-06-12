@@ -72,19 +72,19 @@ struct combined_version get_version(const string &user_agent) {
    uint8_t buf[9];
    uint8_t size = to_varint(buf, user_agent.length());
    struct combined_version rv(size + user_agent.length());
-   rv.version() = MAX_VERSION;
-   rv.services() = SERVICES;
-   rv.timestamp() = time(NULL);
-   //rv.addr_recv() = x; /* target address */
+   rv.version(MAX_VERSION);
+   rv.services(SERVICES);
+   rv.timestamp(time(NULL));
+   //rv.addr_recv(x); /* target address */
    //fill_my_address(&rv.addr_from());
-   //rv.nonce() = y; /* random value */
+   //rv.nonce(y); /* random value */
 
    /* copy user agent...gross */
    copy(buf, buf + size, rv.user_agent());
    copy(user_agent.cbegin(), user_agent.cend(), rv.user_agent() + size);
 
-   rv.start_height() = 0;
-   rv.relay() = true;
+   rv.start_height(0);
+   rv.relay(true);
    return rv;
 }
 

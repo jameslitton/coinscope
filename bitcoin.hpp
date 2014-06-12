@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 
 #include <memory>
 
@@ -56,16 +57,37 @@ struct combined_version { /* the stupid hurts so bad */
    std::unique_ptr<struct packed_version_prefix, void(*)(void*)> prefix;
    struct packed_version_suffix *suffix;
 
-   /* to simplify use */
-   uint32_t & version() { return prefix->version; }
-   uint64_t & services() { return prefix->services; }
-   int64_t & timestamp() { return prefix->timestamp; }
-   packed_net_addr& addr_recv() { return prefix->addr_recv; }
-   packed_net_addr& addr_from() { return prefix->addr_from; }
-   uint64_t & nonce() { return prefix->nonce; }
+   uint32_t version() const { return prefix->version; }
+   uint64_t services() const { return prefix->services; }
+   int64_t timestamp() const { return prefix->timestamp; }
+   const packed_net_addr * addr_recv() const { return & prefix->addr_recv; }
+   const packed_net_addr * addr_from() const { return & prefix->addr_from; }
+   uint64_t  nonce() const { return prefix->nonce; }
    char* user_agent() { return prefix->user_agent; }
-   int32_t& start_height()  { return suffix->start_height; }
-   bool & relay()  { return suffix->relay; }
+   int32_t start_height()  const { return suffix->start_height; }
+   bool  relay()  const { return suffix->relay; }
+
+   /* can't just have previous methods return reference because of packing */
+   void version(uint32_t version)  { prefix->version = version; }
+   void services(uint64_t services)  { prefix->services = services; }
+   void timestamp(int64_t timestamp)  { prefix->timestamp = timestamp; }
+   void addr_recv(const packed_net_addr * x) { 
+      memcpy(&prefix->addr_recv, x, sizeof(*x));
+   }
+   void addr_from(const packed_net_addr * x) { 
+      memcpy(&prefix->addr_from, x, sizeof(*x));
+   }
+
+   void nonce(uint64_t  nonce)  { prefix->nonce = nonce; }
+   void user_agent(const char *s, size_t len) { 
+      for(size_t i = 0; i < len; ++i) {
+         prefix->user_agent[i] = *s++;
+      }
+   }
+   void start_height(int32_t start)   { suffix->start_height = start; }
+   void relay(bool relay)   { suffix->relay = relay; }
+
+
 
    combined_version(size_t agent_length) : 
       prefix((struct packed_version_prefix*) malloc(sizeof(struct packed_version_prefix) + 
