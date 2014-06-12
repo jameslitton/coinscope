@@ -3,10 +3,22 @@
 #include <cassert>
 
 #include <string>
+#include <random>
 
 using namespace std;
 
 namespace bitcoin {
+
+struct randmaker {
+   uint64_t get_nonce() {
+      return gen();
+   }
+   random_device rd;
+   mt19937_64 gen;
+   randmaker() : rd(), gen(rd()) {}
+};
+
+static struct randmaker g_nonce_gen;
 
 
 
@@ -77,7 +89,7 @@ struct combined_version get_version(const string &user_agent) {
    rv.timestamp(time(NULL));
    //rv.addr_recv(x); /* target address */
    //fill_my_address(&rv.addr_from());
-   //rv.nonce(y); /* random value */
+   rv.nonce(g_nonce_gen.get_nonce());
 
    /* copy user agent...gross */
    copy(buf, buf + size, rv.user_agent());
