@@ -116,6 +116,7 @@ struct combined_version get_version(const string &user_agent,
 
 uint32_t compute_checksum(const vector<uint8_t> &payload) {
    unique_ptr<unsigned char[]> digest(sha256(sha256(payload), 32));
+   /* only works on little-endian */
    uint32_t rv = *((uint32_t*) digest.get());
    return rv;
 }

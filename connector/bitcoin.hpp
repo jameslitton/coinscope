@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include <memory>
+#include <vector>
 
 #include <netinet/in.h>
 
@@ -73,6 +74,10 @@ struct combined_version { /* the stupid hurts so bad */
    std::unique_ptr<struct packed_version_prefix, void(*)(void*)> prefix;
    struct packed_version_suffix *suffix;
 
+   uint8_t* as_buffer() { 
+      return (uint8_t*)prefix.get();
+   }
+
    uint32_t version() const { return prefix->version; }
    uint64_t services() const { return prefix->services; }
    int64_t timestamp() const { return prefix->timestamp; }
@@ -110,7 +115,8 @@ struct combined_version { /* the stupid hurts so bad */
    combined_version(size_t agent_length) : 
       prefix((struct packed_version_prefix*) malloc(sizeof(struct packed_version_prefix) + 
                     agent_length + sizeof(struct packed_version_suffix)), free) {
-      suffix = (struct packed_version_suffix *)((char *) prefix.get()) + sizeof(struct packed_version_prefix) + agent_length;
+      suffix = (struct packed_version_suffix *)((char *) prefix.get()) + 
+         sizeof(struct packed_version_prefix) + agent_length;
    }
 
 
@@ -119,6 +125,9 @@ struct combined_version { /* the stupid hurts so bad */
 struct combined_version get_version(const std::string &user_agent,
                                     struct in_addr from, uint16_t from_port,
                                     struct in_addr recv, uint16_t recv_port);
+
+std::unique_ptr<struct packed_message, void(*)(void*)> get_message(const char *command, 
+                                                                   std::vector<uint8_t> payload=std::vector<uint8_t>());
 
 };
 

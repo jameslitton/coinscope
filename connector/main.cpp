@@ -20,6 +20,7 @@
 
 /* our libraries */
 #include "bitcoin.hpp"
+#include "iobuf.hpp"
 
 using namespace std;
 
@@ -28,62 +29,19 @@ namespace bc = bitcoin;
 const uint32_t RECV_MASK = 0x0000ffff; // all receive flags should be in the mask 
 const uint32_t RECV_HEADER = 0x1;
 const uint32_t RECV_PAYLOAD = 0x2;
-const uint32_t RECV_VERSION_INIT = 0x40; /* we initiated the handshake */
-const uint32_t RECV_VERSION_REPLY = 0x80;
+const uint32_t RECV_VERSION_INIT = 0x4; /* we initiated the handshake */
+const uint32_t RECV_VERSION_REPLY = 0x8;
 
 const uint32_t SEND_MASK = 0xffff0000;
-const uint32_t SEND_MESSAGE = 0x10;
-const uint32_t SEND_VERSION_INIT = 0x20; /* we initiated the handshake */
-const uint32_t SEND_VERSION_REPLY = 0x40;
+const uint32_t SEND_MESSAGE = 0x10000;
+const uint32_t SEND_VERSION_INIT = 0x20000; /* we initiated the handshake */
+const uint32_t SEND_VERSION_REPLY = 0x40000;
    
 const size_t BUFSZ = 4096;
 
 const string USER_AGENT("specify version string");
 
 void handle_message() { assert(false); }
-
-/* all event data goes into here. It is FIFO. Must optimize*/
-class iobuf {
-public:
-	void * offset_buffer() {
-      assert(buffer);
-		return buffer.get() + loc;
-	}
-
-   void * raw_buffer() {
-      assert(buffer);
-      return buffer.get();
-   }
-
-   size_t location() const { return loc; }
-
-   void seek(size_t new_loc) { 
-      assert(new_loc < allocated);
-      loc = new_loc;
-   }
-
-   void reserve(size_t x) {
-      if (x > allocated) {
-         unique_ptr<uint8_t[]> tmp(new uint8_t[x]);
-         copy(buffer.get(), buffer.get() + allocated, tmp.get());
-         buffer = move(tmp);
-         allocated = x;
-      }
-   }
-
-   void shrink(size_t x) {
-      if (x < allocated) {
-         unique_ptr<uint8_t[]> tmp(new uint8_t[x]);
-         copy(buffer.get(), buffer.get() + x, tmp.get());
-         buffer = move(tmp);
-         allocated = x;
-      }
-   }
-protected:
-	unique_ptr<uint8_t[]> buffer;
-   size_t allocated;
-   size_t loc;
-};
 
 class handler {
 private:
@@ -145,8 +103,10 @@ public:
                   state = (state & SEND_MASK) | RECV_HEADER; 
                   break;
                case RECV_VERSION_REPLY: // they initiated handshake, send our version and verack
-                  struct bc::combined_version vers(bc::get_version(USER_AGENT, remote_addr, remote_port, this_addr, this_port));
-                  
+                  auto vers(bc::get_version(USER_AGENT, remote_addr, remote_port, this_addr, this_port));
+                  write_queue.append(&vers);
+                  unique_ptr<struct bc::packed_message, void(*)(void*)> msg(bc::get_message("verack"));
+                  write_queue.append(msg.get());
                   state = (state & SEND_MASK) | SEND_VERSION_REPLY | RECV_HEADER;
                   break;
                }
