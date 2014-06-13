@@ -38,6 +38,8 @@ const uint32_t SEND_VERSION_REPLY = 0x40;
    
 const size_t BUFSZ = 4096;
 
+const string USER_AGENT("specify version string");
+
 void handle_message() { assert(false); }
 
 /* all event data goes into here. It is FIFO. Must optimize*/
@@ -91,6 +93,12 @@ private:
    iobuf write_queue; /* application wants this written out across network */
    size_t to_write;
 
+   in_addr remote_addr;
+   uint16_t remote_port;
+
+   in_addr this_addr; /* address we connected on */
+   uint16_t this_port;
+
 	uint32_t state;
 
 public:
@@ -137,6 +145,8 @@ public:
                   state = (state & SEND_MASK) | RECV_HEADER; 
                   break;
                case RECV_VERSION_REPLY: // they initiated handshake, send our version and verack
+                  struct bc::combined_version vers(bc::get_version(USER_AGENT, remote_addr, remote_port, this_addr, this_port));
+                  
                   state = (state & SEND_MASK) | SEND_VERSION_REPLY | RECV_HEADER;
                   break;
                }

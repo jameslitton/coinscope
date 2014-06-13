@@ -2,13 +2,13 @@ CC=gcc
 CXX=g++
 CFLAGS=-Wall
 CXXFLAGS=-Wall -std=c++11
-LDLIBS=-lev
+LDLIBS=-lev -lcrypto
 
 all: test main
 
-test: test.cpp
+test: test.cpp crypto.o
 
-main: main.cpp bitcoin.cpp
+main: main.cpp bitcoin.o crypto.o
 
 clean:
 	rm -rf *~ *.o test main

@@ -7,6 +7,8 @@
 
 #include <memory>
 
+#include <netinet/in.h>
+
 namespace bitcoin {
 
 const int32_t MAX_VERSION(7002);
@@ -24,13 +26,27 @@ struct packed_message {
    char command[12];
    uint32_t length;
    uint32_t checksum;
-   unsigned char payload[0];
+   uint8_t payload[0];
 } __attribute__((packed));
 
 struct packed_net_addr {
    uint32_t time;
    uint64_t services;
-   char ipv[16];
+   union {
+      struct {
+         union {
+            uint8_t bytes[16];
+         } as;
+      } ipv6;
+      struct {
+         char padding[12];
+         union {
+            uint8_t bytes[4];
+            uint32_t number;
+            struct in_addr in_addr;
+         } as;
+      } ipv4;
+   } addr;
    uint16_t port;
 } __attribute__((packed));
 
@@ -38,8 +54,8 @@ struct packed_version_prefix {
    uint32_t version;
    uint64_t services;
    int64_t timestamp;
-   packed_net_addr addr_recv;
-   packed_net_addr addr_from;
+   packed_net_addr recv;
+   packed_net_addr from;
    uint64_t nonce;
    char user_agent[0]; /* why a variable length variable here!! */
 } __attribute__((packed));
@@ -60,22 +76,24 @@ struct combined_version { /* the stupid hurts so bad */
    uint32_t version() const { return prefix->version; }
    uint64_t services() const { return prefix->services; }
    int64_t timestamp() const { return prefix->timestamp; }
-   const packed_net_addr * addr_recv() const { return & prefix->addr_recv; }
-   const packed_net_addr * addr_from() const { return & prefix->addr_from; }
+   const packed_net_addr * addr_recv() const { return & prefix->recv; }
+   const packed_net_addr * addr_from() const { return & prefix->from; }
    uint64_t  nonce() const { return prefix->nonce; }
    char* user_agent() { return prefix->user_agent; }
    int32_t start_height()  const { return suffix->start_height; }
    bool  relay()  const { return suffix->relay; }
 
-   /* can't just have previous methods return reference because of packing */
+   /* can't just have previous methods return reference because of
+      packing, so some strange convoluted-seeming behavior is to get
+      around this restriction */
    void version(uint32_t version)  { prefix->version = version; }
    void services(uint64_t services)  { prefix->services = services; }
    void timestamp(int64_t timestamp)  { prefix->timestamp = timestamp; }
    void addr_recv(const packed_net_addr * x) { 
-      memcpy(&prefix->addr_recv, x, sizeof(*x));
+      memcpy(&prefix->recv, x, sizeof(*x));
    }
    void addr_from(const packed_net_addr * x) { 
-      memcpy(&prefix->addr_from, x, sizeof(*x));
+      memcpy(&prefix->from, x, sizeof(*x));
    }
 
    void nonce(uint64_t  nonce)  { prefix->nonce = nonce; }
@@ -97,6 +115,10 @@ struct combined_version { /* the stupid hurts so bad */
 
 
 };
+
+struct combined_version get_version(const std::string &user_agent,
+                                    struct in_addr from, uint16_t from_port,
+                                    struct in_addr recv, uint16_t recv_port);
 
 };
 
