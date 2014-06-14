@@ -14,12 +14,10 @@ namespace bitcoin {
 void handler::handle_message_recv(const struct packed_message *msg) { 
    cout << "RMSG " << inet_ntoa(remote_addr) << ' ' << msg->command << ' ' << msg->length << endl;
    if (strcmp(msg->command, "ping") == 0) {
-      write_queue.append(msg);
+      write_queue.append(msg); /* it makes sense to just ferret this through a function and log all outgoing appends easy-peasy */
    }
 }
 
-
-   
 void handler::io_cb(ev::io &watcher, int revents) {
    if ((state & RECV_MASK) && (revents & ev::READ)) {
       ssize_t r(1);
@@ -49,7 +47,6 @@ void handler::io_cb(ev::io &watcher, int revents) {
                }
                break;
             case RECV_PAYLOAD:
-               /* must be able to handle pongs as well */
                handle_message_recv((struct packed_message*) read_queue.raw_buffer());
                read_queue.seek(0);
                to_read = sizeof(struct packed_message);
