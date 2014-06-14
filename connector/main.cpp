@@ -12,6 +12,7 @@
 /* standard unix libraries */
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -41,7 +42,6 @@ const size_t BUFSZ = 4096;
 
 const string USER_AGENT("specify version string");
 
-void handle_message() { assert(false); }
 
 class handler {
 private:
@@ -63,6 +63,15 @@ public:
 	handler(uint32_t a_state = SEND_VERSION_INIT) : state(a_state) {
 		
 	};
+
+   void handle_message_recv(const struct bc::packed_message *msg) { 
+      cout << "RMSG " << inet_ntoa(remote_addr) << ' ' << msg->command << ' ' << msg->length << endl;
+      if (strcmp(msg->command, "ping") == 0) {
+         write_queue.append(msg);
+      }
+   }
+
+
    
    void io_cb(ev::io &watcher, int revents) {
       if ((state & RECV_MASK) && (revents & ev::READ)) {
@@ -84,29 +93,33 @@ public:
                   /* interpret data as message header and get length, reset remaining */ 
                   to_read = ((struct bc::packed_message*) read_queue.raw_buffer())->length;
                   if (to_read == 0) { /* payload is packed message */
-                     handle_message();
+                     handle_message_recv((struct bc::packed_message*) read_queue.raw_buffer());
                      read_queue.seek(0);
                      to_read = sizeof(struct bc::packed_message);
                   } else {
                      read_queue.reserve(sizeof(struct bc::packed_message) + to_read);
-                     state = (state & ~RECV_MASK) | RECV_PAYLOAD;
+                     state = (state & SEND_MASK) | RECV_PAYLOAD;
                   }
                   break;
                case RECV_PAYLOAD:
-                  handle_message(); /* must be able to handle pongs as well */
+                  /* must be able to handle pongs as well */
+                  handle_message_recv((struct bc::packed_message*) read_queue.raw_buffer());
                   read_queue.seek(0);
                   to_read = sizeof(struct bc::packed_message);
-                  state = (state & ~RECV_MASK) | RECV_HEADER;
+                  state = (state & SEND_MASK) | RECV_HEADER;
                   break;
                case RECV_VERSION_INIT: // we initiated handshake, we expect ack
                   // next message should be zero length header with verack command
                   state = (state & SEND_MASK) | RECV_HEADER; 
                   break;
                case RECV_VERSION_REPLY: // they initiated handshake, send our version and verack
-                  auto vers(bc::get_version(USER_AGENT, remote_addr, remote_port, this_addr, this_port));
+                  struct bc::combined_version vers(bc::get_version(USER_AGENT, remote_addr, remote_port, this_addr, this_port));
                   write_queue.append(&vers);
                   unique_ptr<struct bc::packed_message, void(*)(void*)> msg(bc::get_message("verack"));
                   write_queue.append(msg.get());
+                  if (!(state & SEND_MASK)) {
+                     /* add to write event */
+                  }
                   state = (state & SEND_MASK) | SEND_VERSION_REPLY | RECV_HEADER;
                   break;
                }
@@ -153,7 +166,6 @@ public:
    }
 };
    
-
 
 void do_parent(vector<int> &fds) {
    ev::default_loop loop;
