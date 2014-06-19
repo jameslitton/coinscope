@@ -21,18 +21,18 @@ const uint32_t SEND_MESSAGE = 0x10000;
 
 class handler {
 private:
-   iobuf read_queue;
-   size_t to_read;
+	iobuf read_queue;
+	size_t to_read;
 
-   iobuf write_queue; /* most logging should be through logging facility/filter */
-   size_t to_write;
+	iobuf write_queue; /* most logging should be through logging facility/filter */
+	size_t to_write;
 
-   uint32_t state;
+	uint32_t state;
 
 public:
 	handler() : to_read(sizeof(struct command)),state(RECV_HEADER) {}
-   void handle_message_recv(const struct command *msg);
-   void io_cb(ev::io &watcher, int revents);
+	void handle_message_recv(const struct command *msg);
+	void io_cb(ev::io &watcher, int revents);
 };
 
 

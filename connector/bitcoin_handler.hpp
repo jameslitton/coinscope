@@ -29,25 +29,25 @@ const std::string USER_AGENT("specify version string");
 
 class handler {
 private:
-   iobuf read_queue; /* application needs to read and act on this data */
-   size_t to_read;
+	iobuf read_queue; /* application needs to read and act on this data */
+	size_t to_read;
 
-   iobuf write_queue; /* application wants this written out across network */
-   size_t to_write;
+	iobuf write_queue; /* application wants this written out across network */
+	size_t to_write;
 
-   in_addr remote_addr;
-   uint16_t remote_port;
+	in_addr remote_addr;
+	uint16_t remote_port;
 
-   in_addr this_addr; /* address we connected on */
-   uint16_t this_port;
+	in_addr this_addr; /* address we connected on */
+	uint16_t this_port;
 
 	uint32_t state;
 
 public:
 	handler(uint32_t a_state = SEND_VERSION_INIT) : state(a_state) {};
 
-   void handle_message_recv(const struct packed_message *msg);
-   void io_cb(ev::io &watcher, int revents);
+	void handle_message_recv(const struct packed_message *msg);
+	void io_cb(ev::io &watcher, int revents);
 
 };
 

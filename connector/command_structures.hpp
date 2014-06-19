@@ -14,7 +14,7 @@ enum commands {
 	COMMAND_GETADDR 
 };
 
-const uint32_t BROADCAST_TARGET(~0);
+const uint32_t BROADCAST_TARGET(0xFFFFFFFF);
 
 enum message_types {
 	BITCOIN_PACKED_MESSAGE,
@@ -34,13 +34,13 @@ struct _register {
 
 struct command {
 	uint32_t version;
-   uint32_t command;
+	uint32_t command;
 	uint32_t message_id;
-   /* still have to decide the format of target, as it depends on some
-      data structure changes, but target will correspond to indices in
-      the logs and values returned by COMMAND_GET_CXN */
+	/* still have to decide the format of target, as it depends on some
+	   data structure changes, but target will correspond to indices in
+	   the logs and values returned by COMMAND_GET_CXN */
 
-   uint32_t targets[0]; 
+	uint32_t targets[0]; 
 };
 
 /*
