@@ -16,14 +16,23 @@ enum commands {
 
 const uint32_t BROADCAST_TARGET(~0);
 
-struct bitcoin_msg {
-	uint32_t length;
+enum message_types {
+	BITCOIN_PACKED_MESSAGE,
+	COMMAND,
+	REGISTER,
+};
+
+struct message {
+	uint32_t length; /* sizeof(message_type) + sizeof(payload) */
+	uint32_t message_type;
 	uint8_t payload[0];
 };
 
+struct _register {
+	struct message msg; /* returns new id */
+};
 
 struct command {
-   uint32_t length;
 	uint32_t version;
    uint32_t command;
 	uint32_t message_id;

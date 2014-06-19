@@ -48,6 +48,7 @@ public:
 
    void handle_message_recv(const struct packed_message *msg);
    void io_cb(ev::io &watcher, int revents);
+
 };
 
 
