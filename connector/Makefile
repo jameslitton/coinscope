@@ -1,8 +1,9 @@
 CC=gcc
 CXX=g++
-CFLAGS=-Wall
-CXXFLAGS=-Wall -std=c++11
+CFLAGS=-Wall -Iincludes
+CXXFLAGS=-Wall -std=c++11 -Iincludes
 LDLIBS=-lev -lcrypto
+VPATH=src:includes
 
 all: test main
 
