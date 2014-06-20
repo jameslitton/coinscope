@@ -52,7 +52,7 @@ namespace iobuf_spec {
 
 void append(iobuf *buf, const uint8_t *ptr, size_t len) {
 	buf->reserve(buf->location() + len);
-	copy(ptr, ptr + sizeof(*ptr), buf->offset_buffer());
+	copy(ptr, ptr + len, buf->offset_buffer());
 	buf->seek(buf->location() + len);
 }
 

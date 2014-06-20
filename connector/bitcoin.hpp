@@ -12,12 +12,16 @@
 
 namespace bitcoin {
 
+extern int32_t g_last_block;
+
 const int32_t MAX_VERSION(7002);
 const int32_t MIN_VERSION(209);
 const uint64_t SERVICES(1); /* corresponds to NODE_NETWORK */
 
 /* all numbers little endian (x86) except for IP and port in
    bitcoin */
+
+
 
 
 /* because command is 12 bytes (...), this packed form could be slow
@@ -71,8 +75,10 @@ struct combined_version { /* the stupid hurts so bad */
 	/* in practice prefix and suffix should be in contiguous memory
 	   from the prefix allocation, i.e., prefix should be in wire
 	   format to send combined and no need to free suffix */
+	size_t size;
 	std::unique_ptr<struct packed_version_prefix, void(*)(void*)> prefix;
 	struct packed_version_suffix *suffix;
+
 
 	uint8_t* as_buffer() { 
 		return (uint8_t*)prefix.get();
@@ -113,12 +119,13 @@ struct combined_version { /* the stupid hurts so bad */
 
 
 	combined_version(size_t agent_length) : 
-		prefix((struct packed_version_prefix*) malloc(sizeof(struct packed_version_prefix) + 
-		                                              agent_length + sizeof(struct packed_version_suffix)), free) {
+		size(sizeof(struct packed_version_prefix) + 
+		     agent_length + sizeof(struct packed_version_suffix)),
+		prefix((struct packed_version_prefix*) malloc(size), free) 
+	{
 		suffix = (struct packed_version_suffix *)((char *) prefix.get()) + 
 			sizeof(struct packed_version_prefix) + agent_length;
 	}
-
 
 };
 
@@ -126,8 +133,15 @@ struct combined_version get_version(const std::string &user_agent,
                                     struct in_addr from, uint16_t from_port,
                                     struct in_addr recv, uint16_t recv_port);
 
+std::unique_ptr<struct packed_message, void(*)(void*)> get_message(const char *command, const uint8_t *payload, size_t len);
 std::unique_ptr<struct packed_message, void(*)(void*)> get_message(const char *command, 
-                                                                   std::vector<uint8_t> payload=std::vector<uint8_t>());
+                                                                   std::vector<uint8_t> &payload);
+inline std::unique_ptr<struct packed_message, void(*)(void*)> get_message(const char *command) { 
+	return get_message(command, NULL, 0); 
+}
+
+uint32_t compute_checksum(const std::vector<uint8_t> &payload);
+uint32_t compute_checksum(const uint8_t *payload, size_t len);
 
 };
 

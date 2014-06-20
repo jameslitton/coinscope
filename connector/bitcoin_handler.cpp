@@ -4,6 +4,9 @@
 
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
+
+#include "netwrap.hpp"
 
 
 
@@ -11,11 +14,86 @@ using namespace std;
 
 namespace bitcoin {
 
+handler_set g_active_handlers;
+
+uint32_t handler::id_pool = 0;
+
+accept_handler::accept_handler(int fd, struct in_addr a_local_addr, uint16_t a_local_port) 
+	: local_addr(a_local_addr), local_port(a_local_port), io()
+{
+	io.set<accept_handler, &accept_handler::io_cb>(this);
+	io.set(fd, ev::READ);
+	io.start();
+}
+
+accept_handler::~accept_handler() {
+	io.stop();
+	close(io.fd);
+}
+
+void accept_handler::io_cb(ev::io &watcher, int revents) {
+	struct sockaddr_in addr;
+	socklen_t len;
+	int client;
+	try {
+		client = Accept(watcher.fd, (struct sockaddr*)&addr, &len);
+		fcntl(client, F_SETFD, O_NONBLOCK);		
+	} catch (network_error &e) {
+		if (e.error_code() != EWOULDBLOCK && e.error_code() != EAGAIN && e.error_code() != EINTR) {
+			cerr << e.what() << endl;
+			/* trigger destruction of self via some kind of queue and probably recreate channel! */
+		}
+		return;
+	}
+	/* TODO: if can be converted to smarter pointers sensibly, consider, but
+	   since libev doesn't use them makes it hard */
+	g_active_handlers.emplace(new handler(client, RECV_VERSION_REPLY, addr.sin_addr, addr.sin_port, local_addr, local_port));
+}
+
+handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_t a_remote_port,
+                 in_addr a_local_addr, uint16_t a_local_port) : 
+	remote_addr(a_remote_addr), remote_port(a_remote_port),
+	local_addr(a_local_addr), local_port(a_local_port), 
+	state(a_state), 
+	id(id_pool++) 
+{
+
+	io.set<handler, &handler::io_cb>(this);
+	if (a_state == SEND_VERSION_INIT) {
+		/* TODO: profile to see if extra copies are worth optimizing away */
+		struct combined_version vers(get_version(USER_AGENT, local_addr, local_port, remote_addr, remote_port));
+		unique_ptr<struct packed_message, void(*)(void*)> msg(get_message("version", vers.as_buffer(), vers.size));
+		write_queue.append(msg.get());
+		to_write += sizeof(struct packed_message)+msg->length;
+		io.start(fd, ev::READ | ev::WRITE);
+	} else {
+		io.start(fd, ev::READ);
+	}
+}
+
+
+
 void handler::handle_message_recv(const struct packed_message *msg) { 
 	cout << "RMSG " << inet_ntoa(remote_addr) << ' ' << msg->command << ' ' << msg->length << endl;
 	if (strcmp(msg->command, "ping") == 0) {
 		write_queue.append(msg); /* it makes sense to just ferret this through a function and log all outgoing appends easy-peasy */
+		to_write += sizeof(struct packed_message) + msg->length;
 	}
+}
+
+handler::~handler() { 
+	if (io.fd >= 0) {
+		io.stop();
+		close(io.fd);
+	}
+}
+
+void handler::suicide() {
+	io.stop();
+	close(io.fd);
+	io.fd = -1;
+	g_active_handlers.erase(this);
+	delete this;
 }
 
 void handler::io_cb(ev::io &watcher, int revents) {
@@ -24,10 +102,28 @@ void handler::io_cb(ev::io &watcher, int revents) {
 		while(r > 0) { /* do all reads we can in this event handler */
 			do {
 				r = read(watcher.fd, read_queue.offset_buffer(), to_read);
-				if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN) { cerr << strerror(errno) << endl; }
+				if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
+					/* 
+					   most probably a disconnect of some sort, though I
+					   think with reads on a socket this should just come
+					   across as a zero byte read, not an error... Anyway,
+					   log error and queue object for deletion
+					*/
+
+					cerr << strerror(errno) << endl; 
+					suicide();
+					return;
+
+				}
 				if (r > 0) {
 					to_read -= r;
 					read_queue.seek(read_queue.location() + r);
+				}
+				if (r == 0) { /* got disconnected! */
+					/* LOG disconnect */
+					cerr << "disconnected, don't know why" << endl; 
+					suicide();
+					return;
 				}
 			} while (r > 0 && to_read > 0);
 
@@ -57,12 +153,12 @@ void handler::io_cb(ev::io &watcher, int revents) {
 					state = (state & SEND_MASK) | RECV_HEADER; 
 					break;
 				case RECV_VERSION_REPLY: // they initiated handshake, send our version and verack
-					struct combined_version vers(get_version(USER_AGENT, remote_addr, remote_port, this_addr, this_port));
+					struct combined_version vers(get_version(USER_AGENT, remote_addr, remote_port, local_addr, local_port));
 					write_queue.append(&vers);
 					unique_ptr<struct packed_message, void(*)(void*)> msg(get_message("verack"));
 					write_queue.append(msg.get());
 					if (!(state & SEND_MASK)) {
-						/* add to write event */
+						io.set(ev::READ|ev::WRITE);
 					}
 					state = (state & SEND_MASK) | SEND_VERSION_REPLY | RECV_HEADER;
 					break;
@@ -76,9 +172,15 @@ void handler::io_cb(ev::io &watcher, int revents) {
 	if (revents & ev::WRITE) {
 
 		ssize_t r(1);
-		while (to_write && r > 0) {
+		while (to_write && r > 0) { 
 			r = write(watcher.fd, write_queue.offset_buffer(), to_write);
-			if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN) { cerr << strerror(errno) << endl; }
+
+			if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
+				/* most probably a disconnect of some sort, log error and queue object for deletion */
+				cerr << strerror(errno) << endl; 
+				suicide();
+				return;
+			} 
 			if (r > 0) {
 				write_queue.seek(write_queue.location() + r);
 			}
@@ -87,7 +189,6 @@ void handler::io_cb(ev::io &watcher, int revents) {
 		if (to_write == 0) {
 			switch(state & SEND_MASK) {
 			case SEND_VERSION_INIT:
-				/* set to fire watch read events */
 				state = RECV_VERSION_INIT;
 				break;
 			default:
@@ -97,7 +198,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 				break;
 			}
 
-			/* unregister write event! */
+			io.set(ev::READ);
 			state &= ~SEND_MASK;
 			write_queue.seek(0);
 
