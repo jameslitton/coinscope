@@ -26,10 +26,11 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 	bool writing = to_write;
 
 	if (msg->command == COMMAND_GET_CXN) {
-		/* format is 64 bit id, inaddr,  port */
-		uint8_t buffer[sizeof(void*) + sizeof(in_addr)+sizeof(uint16_t)];
+		/* format is 32 bit id, inaddr,  port */
+		uint8_t buffer[sizeof(uint32_t) + sizeof(in_addr)+sizeof(uint16_t)];
 		for(auto it = bc::g_active_handlers.cbegin(); it != bc::g_active_handlers.cend(); ++it) {
-			memcpy(buffer, &*it, sizeof(void*));
+			uint32_t id = (*it)->get_id();
+			memcpy(buffer, &id, sizeof(id));
 			struct in_addr addr = (*it)->get_remote_addr();
 			uint16_t port = (*it)->get_remote_port();
 			memcpy(buffer+sizeof(void*), &addr, sizeof(in_addr));
