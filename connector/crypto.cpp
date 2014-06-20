@@ -1,11 +1,12 @@
 #include <openssl/evp.h>
 
-#include <cstdint>
+#include "crypto.hpp"
 
-#include <vector>
-#include <memory>
 
 using namespace std;
+
+struct randmaker64 nonce_gen64;
+struct randmaker32 nonce_gen32;
 
 
 unique_ptr<unsigned char[]> sha256(const uint8_t *data, size_t len) {

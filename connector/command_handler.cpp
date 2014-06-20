@@ -8,6 +8,7 @@
 #include "command_handler.hpp"
 #include "bitcoin_handler.hpp"
 #include "netwrap.hpp"
+#include "network.hpp"
 
 using namespace std;
 
@@ -21,9 +22,8 @@ uint32_t handler::id_pool = 0;
 
 void handler::handle_message_recv(const struct command_msg *msg) { 
 	/* do control command handler crap */
-	vector<uint8_t> out;
 
-	bool writing = to_write;
+	vector<uint8_t> out;
 
 	if (msg->command == COMMAND_GET_CXN) {
 		/* format is 32 bit id, inaddr,  port */
@@ -39,17 +39,87 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 		out.reserve(sizeof(buffer));
 		copy(buffer, buffer + sizeof(buffer), back_inserter(out));
 		iobuf_spec::append(&write_queue, out.data(), out.size());
+		state |= SEND_MESSAGE;
 		to_write += out.size();
 	}
 
-	if (!writing && to_write) {
-		io.set(ev::WRITE);
-	}
 
 
 }
 
+void handler::receive_header() {
+	/* interpret data as message header and get length, reset remaining */ 
+	struct message *msg = (struct message*)read_queue.raw_buffer();
+	to_read = msg->length;
+	if (to_read == 0) { /* payload is packed message */
+		if (msg->message_type == REGISTER) {
+			/* msg->payload should be zero length here */
+			/* send back their new user id */
+		} else {
+			/* command and bitcoin payload messages always have a payload */
+			cerr << "bad message?" << endl;
+		}
+		read_queue.seek(0);
+		to_read = sizeof(struct message);
+	} else {
+		read_queue.reserve(sizeof(message) + to_read);
+		state = (state & SEND_MASK) | RECV_PAYLOAD;
+	}
+}
+
+void handler::receive_payload() {
+	struct message *msg = (struct message*) read_queue.raw_buffer();
+	switch(msg->message_type) {
+	case BITCOIN_PACKED_MESSAGE:
+		/* register message and send back its id */
+		break;
+	case COMMAND:
+		handle_message_recv((struct command_msg*) msg->payload);
+		read_queue.seek(0);
+		to_read = sizeof(struct command_msg);
+		state = (state & SEND_MASK) | RECV_HEADER;
+		break;
+	case REGISTER:
+		{
+			/* changing id and sending it. */
+			regid = nonce_gen32();
+			write_queue.reserve(write_queue.location() + 4);
+			uint32_t netorder = hton(regid);
+			write_queue.append(&netorder);
+			to_write += 4;
+		}
+		break;
+	case CONNECT:
+		{
+			/* format is remote_inaddr, remote_port, local_inaddr, local_port (see command structures) */
+			struct connect_payload *payload = (struct connect_payload*) msg->payload;
+			int fd(-1);
+			struct sockaddr_in addr;
+			try {
+				int sfd = Socket(AF_UNIX, SOCK_STREAM, 0);
+				/* This socket is NOT non-blocking. Is this an issue in building up connections? */
+				bzero(&addr,sizeof(addr));
+				addr.sin_family = AF_INET;
+				addr.sin_port = payload->remote_port;
+				memcpy(&addr.sin_addr, &payload->remote_inaddr, sizeof(struct in_addr));
+				fd = Connect(sfd, (struct sockaddr*)&addr, sizeof(addr));
+				fcntl(fd, F_SETFD, O_NONBLOCK);
+			} catch (network_error &e) {
+				cerr << e.what() << endl;
+			}
+			if (fd >= 0) {
+				bc::g_active_handlers.emplace(new bc::handler(fd, bc::SEND_VERSION_INIT, addr.sin_addr, addr.sin_port, payload->local_inaddr, payload->local_port));
+			}
+		}
+	default:
+		cerr << "unknown payload type\n";
+		break;
+	}
+}
+
 void handler::io_cb(ev::io &watcher, int revents) {
+	bool writing = to_write;
+
 	if ((state & RECV_MASK) && (revents & ev::READ)) {
 		ssize_t r(1);
 		while(r > 0) { 
@@ -66,68 +136,20 @@ void handler::io_cb(ev::io &watcher, int revents) {
 				/* item needs to be handled */
 				switch(state & RECV_MASK) {
 				case RECV_HEADER:
-					/* interpret data as message header and get length, reset remaining */ 
-					{
-						struct message *msg = (struct message*)read_queue.raw_buffer();
-						to_read = msg->length;
-						if (to_read == 0) { /* payload is packed message */
-							if (msg->message_type == REGISTER) {
-								/* msg->payload should be zero length here */
-								/* send back their new user id */
-							} else {
-								/* command and bitcoin payload messages always have a payload */
-								cerr << "bad message?" << endl;
-							}
-							read_queue.seek(0);
-							to_read = sizeof(struct message);
-						} else {
-							read_queue.reserve(sizeof(message) + to_read);
-							state = (state & SEND_MASK) | RECV_PAYLOAD;
-						}
-					}
+					receive_header();
 					break;
 				case RECV_PAYLOAD:
-					{
-						struct message *msg = (struct message*) read_queue.raw_buffer();
-						if (msg->message_type == BITCOIN_PACKED_MESSAGE) {
-							/* register message and send back its id */
-						} else if (msg->message_type == CONNECT) {
-							/* format is remote_inaddr, remote_port, local_inaddr, local_port (see command structures) */
-							struct connect_payload *payload = (struct connect_payload*) msg->payload;
-							int fd(-1);
-							struct sockaddr_in addr;
-							try {
-								int sfd = Socket(AF_UNIX, SOCK_STREAM, 0);
-								/* This socket is NOT non-blocking. Is this an issue in building up connections? */
-								bzero(&addr,sizeof(addr));
-								addr.sin_family = AF_INET;
-								addr.sin_port = payload->remote_port;
-								memcpy(&addr.sin_addr, &payload->remote_inaddr, sizeof(struct in_addr));
-								fd = Connect(sfd, (struct sockaddr*)&addr, sizeof(addr));
-								fcntl(fd, F_SETFD, O_NONBLOCK);
-							} catch (network_error &e) {
-								cerr << e.what() << endl;
-							}
-							if (fd >= 0) {
-								bc::g_active_handlers.emplace(new bc::handler(fd, bc::SEND_VERSION_INIT, addr.sin_addr, addr.sin_port, payload->local_inaddr, payload->local_port));
-							}
-
-						} else if (msg->message_type == COMMAND) {
-							handle_message_recv((struct command_msg*) msg->payload);
-							read_queue.seek(0);
-							to_read = sizeof(struct command_msg);
-							state = (state & SEND_MASK) | RECV_HEADER;
-						} else {
-							cerr << "bad payload?" << endl;
-						}
-					}
+					receive_payload();
+					break;
+				default:
+					cerr << "inconceivable!" << endl;
 					break;
 				}
-
+				break;
 			}
 		}
-         
 	}
+         
 
 	if (revents & ev::WRITE) {
 
@@ -141,11 +163,16 @@ void handler::io_cb(ev::io &watcher, int revents) {
 		}
 
 		if (to_write == 0) {
+			io.set(ev::READ);
 			/* unregister write event! */
 			state &= ~SEND_MASK;
 			write_queue.seek(0);
 
 		}
+	}
+
+	if (!writing && to_write) {
+		io.set(ev::WRITE);
 	}
 }
 

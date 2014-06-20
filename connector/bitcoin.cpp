@@ -10,20 +10,10 @@
 
 using namespace std;
 
+
 namespace bitcoin {
 
 int32_t g_last_block(0);
-
-struct randmaker {
-	uint64_t get_nonce() {
-		return gen();
-	}
-	random_device rd;
-	mt19937_64 gen;
-	randmaker() : rd(), gen(rd()) {}
-};
-
-static struct randmaker g_nonce_gen;
 
 
 
@@ -104,7 +94,7 @@ struct combined_version get_version(const string &user_agent,
 	rv.timestamp(time(NULL));
 	set_address(&rv.prefix->recv, recv, recv_port);
 	set_address(&rv.prefix->from, from, from_port);
-	rv.nonce(g_nonce_gen.get_nonce());
+	rv.nonce(nonce_gen64());
 
 	/* copy user agent...gross. Obviously has to have allocation large
 	   enough to handle this */

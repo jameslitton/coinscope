@@ -7,6 +7,7 @@
 
 #include <ev++.h>
 
+#include "crypto.hpp"
 #include "command_structures.hpp"
 #include "iobuf.hpp"
 
@@ -18,7 +19,6 @@ const uint32_t RECV_PAYLOAD = 0x2;
 
 const uint32_t SEND_MASK = 0xffff0000;
 const uint32_t SEND_MESSAGE = 0x10000;
-
 
 
 class handler {
@@ -34,16 +34,19 @@ private:
 	static uint32_t id_pool;
 
 	uint32_t id;
-
+	uint32_t regid;
 	ev::io io;
 
 public:
-	handler(int fd) : to_read(sizeof(struct message)),state(RECV_HEADER), id(id_pool++) {
+	handler(int fd) : to_read(sizeof(struct message)),state(RECV_HEADER), id(id_pool++), regid(nonce_gen32()) {
 		io.set<handler, &handler::io_cb>(this);
 		io.set(fd, ev::READ);
 		io.start();
 	}
-	uint32_t get_id() const { return id; }
+	uint32_t get_id() const { return id; };
+	uint32_t get_regid() const { return regid;};
+	void receive_header();
+	void receive_payload();
 	void handle_message_recv(const struct command_msg *msg);
 	void io_cb(ev::io &watcher, int revents);
 	~handler() { 
