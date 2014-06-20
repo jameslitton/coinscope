@@ -5,7 +5,7 @@ CXXFLAGS=-Wall -std=c++11 -Iincludes
 LDLIBS=-lev -lcrypto
 VPATH=src:includes
 
-all: test main
+all: main
 
 main: main.cpp bitcoin.o crypto.o iobuf.o bitcoin_handler.o command_handler.o 
 
