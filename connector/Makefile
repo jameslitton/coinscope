@@ -7,8 +7,6 @@ VPATH=src:includes
 
 all: test main
 
-test: test.cpp crypto.o
-
 main: main.cpp bitcoin.o crypto.o iobuf.o bitcoin_handler.o command_handler.o 
 
 clean:
