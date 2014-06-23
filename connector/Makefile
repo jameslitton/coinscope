@@ -7,7 +7,7 @@ VPATH=src:includes
 
 all: main
 
-main: main.cpp bitcoin.o crypto.o iobuf.o bitcoin_handler.o command_handler.o 
+main: main.cpp bitcoin.o crypto.o iobuf.o bitcoin_handler.o command_handler.o logger.o
 
 clean:
 	rm -rf *~ *.o test main

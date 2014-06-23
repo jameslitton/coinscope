@@ -7,8 +7,7 @@
 #include <fcntl.h>
 
 #include "netwrap.hpp"
-
-
+#include "logger.hpp"
 
 using namespace std;
 
@@ -21,12 +20,14 @@ uint32_t handler::id_pool = 0;
 accept_handler::accept_handler(int fd, struct in_addr a_local_addr, uint16_t a_local_port) 
 	: local_addr(a_local_addr), local_port(a_local_port), io()
 {
+	g_log(INTERNALS) << "bitcoin accept initializer initiated, awaiting incoming client connections";
 	io.set<accept_handler, &accept_handler::io_cb>(this);
 	io.set(fd, ev::READ);
 	io.start();
 }
 
 accept_handler::~accept_handler() {
+	g_log(INTERNALS) << "bitcoin accept handler destroyed";
 	io.stop();
 	close(io.fd);
 }
@@ -45,6 +46,7 @@ void accept_handler::io_cb(ev::io &watcher, int revents) {
 		}
 		return;
 	}
+	g_log(BITCOIN) << "Accepted connection to client on fd " << client << " " << *((struct sockaddr*)&addr);
 	/* TODO: if can be converted to smarter pointers sensibly, consider, but
 	   since libev doesn't use them makes it hard */
 	g_active_handlers.emplace(new handler(client, RECV_VERSION_REPLY, addr.sin_addr, addr.sin_port, local_addr, local_port));
@@ -57,12 +59,19 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 	state(a_state), 
 	id(id_pool++) 
 {
+	char local_str[16];
+	char remote_str[16];
+	inet_ntop(AF_INET, &a_remote_addr, remote_str, sizeof(remote_str));
+	inet_ntop(AF_INET, &a_local_addr, local_str, sizeof(local_str));
+	g_log(BITCOIN) << "Initiating handler with state " << state << " on " << local_str << ":" << ntoh(a_local_port) 
+	               << " with " << remote_str << ":" << ntoh(a_remote_port);
 
 	io.set<handler, &handler::io_cb>(this);
 	if (a_state == SEND_VERSION_INIT) {
 		/* TODO: profile to see if extra copies are worth optimizing away */
 		struct combined_version vers(get_version(USER_AGENT, local_addr, local_port, remote_addr, remote_port));
 		unique_ptr<struct packed_message, void(*)(void*)> msg(get_message("version", vers.as_buffer(), vers.size));
+		g_log(BITCOIN_MSG, id, true) << msg.get(); /* TODO: some discontinuity between queue time and transmit complete time */
 		write_queue.append(msg.get());
 		to_write += sizeof(struct packed_message)+msg->length;
 		io.start(fd, ev::READ | ev::WRITE);
@@ -74,8 +83,9 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 
 
 void handler::handle_message_recv(const struct packed_message *msg) { 
-	cout << "RMSG " << inet_ntoa(remote_addr) << ' ' << msg->command << ' ' << msg->length << endl;
+	g_log(BITCOIN_MSG, id, false) << msg;
 	if (strcmp(msg->command, "ping") == 0) {
+		g_log(BITCOIN_MSG, id, true) << msg;
 		write_queue.append(msg); /* it makes sense to just ferret this through a function and log all outgoing appends easy-peasy */
 		to_write += sizeof(struct packed_message) + msg->length;
 	}
@@ -83,12 +93,14 @@ void handler::handle_message_recv(const struct packed_message *msg) {
 
 handler::~handler() { 
 	if (io.fd >= 0) {
+		g_log(BITCOIN, id) << "Shutting down via destructor";
 		io.stop();
 		close(io.fd);
 	}
 }
 
 void handler::suicide() {
+	g_log(BITCOIN, id) << "Shutting down";
 	io.stop();
 	close(io.fd);
 	io.fd = -1;
@@ -110,7 +122,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 					   log error and queue object for deletion
 					*/
 
-					cerr << strerror(errno) << endl; 
+					g_log(ERROR, id) << "Got unexpected error on handler. " << strerror(errno);
 					suicide();
 					return;
 
@@ -121,7 +133,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 				}
 				if (r == 0) { /* got disconnected! */
 					/* LOG disconnect */
-					cerr << "disconnected, don't know why" << endl; 
+					g_log(BITCOIN, id) << "Remote disconnect";
 					suicide();
 					return;
 				}
@@ -150,12 +162,15 @@ void handler::io_cb(ev::io &watcher, int revents) {
 					break;
 				case RECV_VERSION_INIT: // we initiated handshake, we expect ack
 					// next message should be zero length header with verack command
+					g_log(BITCOIN, id, false) << ((struct packed_message*) read_queue.raw_buffer());
 					state = (state & SEND_MASK) | RECV_HEADER; 
 					break;
 				case RECV_VERSION_REPLY: // they initiated handshake, send our version and verack
 					struct combined_version vers(get_version(USER_AGENT, remote_addr, remote_port, local_addr, local_port));
+					(g_log(BITCOIN, id, true) << "VERS").write((const char*)vers.as_buffer(), vers.size);;
 					write_queue.append(&vers);
 					unique_ptr<struct packed_message, void(*)(void*)> msg(get_message("verack"));
+					g_log(BITCOIN, id, true) << msg.get();
 					write_queue.append(msg.get());
 					if (!(state & SEND_MASK)) {
 						io.set(ev::READ|ev::WRITE);
@@ -177,7 +192,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 
 			if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 				/* most probably a disconnect of some sort, log error and queue object for deletion */
-				cerr << strerror(errno) << endl; 
+				g_log(BITCOIN, id) << "Received error on write: " << strerror(errno);
 				suicide();
 				return;
 			} 

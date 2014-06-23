@@ -1,5 +1,6 @@
 #include <iostream>
 #include <iterator>
+#include <set>
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -9,6 +10,7 @@
 #include "bitcoin_handler.hpp"
 #include "netwrap.hpp"
 #include "network.hpp"
+#include "logger.hpp"
 
 using namespace std;
 
@@ -20,12 +22,41 @@ handler_set g_active_handlers;
 
 uint32_t handler::id_pool = 0;
 
-void handler::handle_message_recv(const struct command_msg *msg) { 
-	/* do control command handler crap */
 
+class registered_msg {
+public:
+	time_t registration_time;
+	uint32_t id;
+	unique_ptr<struct bitcoin::packed_message, void(*)(void*)> msg;
+
+	bool operator<(const registered_msg &other) const { return id < other.id; }
+	registered_msg(time_t regtime, time_t newid, struct message *messg) 
+		: registration_time(regtime), id(newid), 		
+		  msg((struct bitcoin::packed_message *) malloc(sizeof(struct bitcoin::packed_message) + messg->length), free)
+	{
+		memcpy(msg.get(), messg, sizeof(struct bitcoin::packed_message) + messg->length);
+	}
+	registered_msg(registered_msg &&other) 
+		: registration_time(other.registration_time),
+		  id(other.id), msg(NULL,free)
+	{
+		msg.swap(other.msg);
+	}
+private:
+	registered_msg & operator=(registered_msg other);
+	registered_msg(const registered_msg &);
+	registered_msg & operator=(registered_msg &&other);
+
+};
+
+set<registered_msg> g_messages;
+
+
+void handler::handle_message_recv(const struct command_msg *msg) { 
 	vector<uint8_t> out;
 
 	if (msg->command == COMMAND_GET_CXN) {
+		g_log(CTRL, regid) << "All connections requested";
 		/* format is 32 bit id, inaddr,  port */
 		uint8_t buffer[sizeof(uint32_t) + sizeof(in_addr)+sizeof(uint16_t)];
 		for(auto it = bc::g_active_handlers.cbegin(); it != bc::g_active_handlers.cend(); ++it) {
@@ -43,8 +74,6 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 		to_write += out.size();
 	}
 
-
-
 }
 
 void handler::receive_header() {
@@ -53,9 +82,19 @@ void handler::receive_header() {
 	to_read = msg->length;
 	if (to_read == 0) { /* payload is packed message */
 		if (msg->message_type == REGISTER) {
+			uint32_t oldid = regid;
+			/* changing id and sending it. */
+			regid = nonce_gen32();
+			g_log(CTRL, oldid) << "UNREGISTERING";
+			g_log(CTRL, regid) << "REGISTERING";
+			write_queue.reserve(write_queue.location() + 4);
+			uint32_t netorder = hton(regid);
+			write_queue.append(&netorder);
+			to_write += 4;
 			/* msg->payload should be zero length here */
 			/* send back their new user id */
 		} else {
+			g_log(CTRL, regid) << "Unknown message " << msg;
 			/* command and bitcoin payload messages always have a payload */
 			cerr << "bad message?" << endl;
 		}
@@ -72,22 +111,23 @@ void handler::receive_payload() {
 	switch(msg->message_type) {
 	case BITCOIN_PACKED_MESSAGE:
 		/* register message and send back its id */
+		{
+			auto pair = g_messages.insert(registered_msg(time(NULL), nonce_gen32(), msg));
+			g_log(CTRL, regid) << "Registering message " << msg;
+			if (pair.second) {
+				write_queue.reserve(write_queue.location() + 4);
+				uint32_t netorder = hton(pair.first->id);
+				write_queue.append(&netorder);
+				to_write += 4;
+				g_log(CTRL, regid) << "message registered at " << pair.first->id;
+			}
+		}
 		break;
 	case COMMAND:
 		handle_message_recv((struct command_msg*) msg->payload);
 		read_queue.seek(0);
 		to_read = sizeof(struct command_msg);
 		state = (state & SEND_MASK) | RECV_HEADER;
-		break;
-	case REGISTER:
-		{
-			/* changing id and sending it. */
-			regid = nonce_gen32();
-			write_queue.reserve(write_queue.location() + 4);
-			uint32_t netorder = hton(regid);
-			write_queue.append(&netorder);
-			to_write += 4;
-		}
 		break;
 	case CONNECT:
 		{
@@ -112,7 +152,7 @@ void handler::receive_payload() {
 			}
 		}
 	default:
-		cerr << "unknown payload type\n";
+		g_log(CTRL, regid) << "unkown payload type" << msg;
 		break;
 	}
 }

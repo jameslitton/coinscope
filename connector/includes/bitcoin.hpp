@@ -22,8 +22,6 @@ const uint64_t SERVICES(1); /* corresponds to NODE_NETWORK */
    bitcoin */
 
 
-
-
 /* because command is 12 bytes (...), this packed form could be slow
    to access but mirrors the wire format */
 struct packed_message {
