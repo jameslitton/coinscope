@@ -4,6 +4,6 @@ all:
 
 clean:
 	make clean -C logserver
-	make clean -C logserver
+	make clean -C connector
 
 .PHONY: all clean
