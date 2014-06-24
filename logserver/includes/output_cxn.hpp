@@ -1,5 +1,5 @@
-#ifndef INPUT_CXN_HPP
-#define INPUT_CXN_HPP
+#ifndef OUTPUT_CXN_HPP
+#define OUTPUT_CXN_HPP
 
 #include <cstdint>
 
@@ -7,7 +7,7 @@
 
 #include "iobuf.hpp"
 
-namespace input_cxn {
+namespace output_cxn {
 
 class accept_handler {
 public:
@@ -20,11 +20,10 @@ private:
 
 class handler {
 private:
-	iobuf read_queue;
-	size_t to_read;
-	uint32_t state;
+	iobuf write_queue; /* TODO this NEEDS to be smarter */
+	size_t to_write;
 	ev::io io;
-
+	uint32_t id;
 public:
 	handler(int fd);
 	~handler();

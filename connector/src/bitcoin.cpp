@@ -7,6 +7,7 @@
 #include <random>
 
 #include "crypto.hpp"
+#include "iobuf.hpp"
 
 using namespace std;
 
@@ -137,6 +138,14 @@ unique_ptr<struct packed_message, void(*)(void*)> get_message(const char *comman
 
 	return rv;
 }
+
    
 };
+
+namespace iobuf_spec {
+template <> void append<bitcoin::packed_message>(iobuf *buf, const bitcoin::packed_message *ptr) {
+	append(buf, (const uint8_t*)ptr, sizeof(*ptr) + ptr->length);
+}
+};
+
 

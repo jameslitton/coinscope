@@ -1,11 +1,13 @@
 #ifndef IOBUF_HPP
 #define IOBUF_HPP
 
-#include <algorithm>
-
-#include "bitcoin.hpp"
+#include <memory>
 
 class iobuf;
+
+namespace bitcoin {
+struct packed_message;
+};
 
 namespace iobuf_spec {
 

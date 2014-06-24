@@ -1,15 +1,8 @@
-CC=gcc
-CXX=g++
-CFLAGS=-Wall -Iincludes -I../shared/includes
-CXXFLAGS=-Wall -std=c++11 -Iincludes -I../shared/includes -g
+include ../makefile.defs
+
 LDLIBS=-lev 
-VPATH=src:includes
 
 all: main
 
-main: main.cpp collector.o
+main: main.cpp collector.o input_cxn.o output_cxn.o iobuf.o
 
-clean: 
-	rm -rf *~ *.o main
-
-.PHONY: all clean

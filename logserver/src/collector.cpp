@@ -5,12 +5,11 @@
 
 using namespace std;
 
-void collector::append(unique_ptr<uint32_t[]> data, size_t len) {
+void collector::append(unique_ptr<uint8_t[]> data, size_t len) {
 	shared_ptr<collector::wrapped_data> w(new collector::wrapped_data(move(data), len));
 	for(auto it = queues.begin(); it != queues.end(); ++it) {
-		/* TODO it->lock.acquire() */
-		it->second.queue.push_front(w);
-		/* TODO it->lock.release() */
+		it->second.push_front(w);
+		/* set all clients to watch for writeable events! */
 	}
 }
 
@@ -21,19 +20,18 @@ shared_ptr<collector::wrapped_data> collector::pop(uint32_t id) {
 		cerr << "LOGIC ERROR, tried to pop non-existant id " << id;
 		/* TODO: HANDLE LOGIC ERROR */
 	} else {
-		/* TODO: acquire(it->lock) */
-		if (it->second.queue.size()) {
-			rv = it->second.queue.back();
-			it->second.queue.pop_back();
+		if (it->second.size()) {
+			rv = it->second.back();
+			it->second.pop_back();
 		}
-		/* TODO: release(it->lock); */
 	}
 	return rv;
 }
 
 uint32_t collector::add_consumer() {
 	uint32_t new_id = ++idpool;
-	queues.insert(make_pair(new_id, wrapped_deque()));
+	queues.insert(make_pair(new_id, 
+	                        deque<shared_ptr<wrapped_data> >()));
 	return new_id;
 }
 

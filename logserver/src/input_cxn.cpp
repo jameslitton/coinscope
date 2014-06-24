@@ -1,13 +1,50 @@
-#include "input_cxn.cpp"
+#include "input_cxn.hpp"
+
+#include <cstring>
+#include <unistd.h>
+#include <fcntl.h>
 
 #include <iostream>
+
+#include "network.hpp"
+#include "netwrap.hpp"
+#include "collector.hpp"
 
 using namespace std;
 
 namespace input_cxn {
 
-const uint32_t RECV_PAYLOAD = 0x1;
+const uint32_t RECV_HEADER = 0x1;
 const uint32_t RECV_LOG = 0x2;
+
+accept_handler::accept_handler(int fd) {
+	io.set<accept_handler, &accept_handler::io_cb>(this);
+	io.set(fd, ev::READ);
+	io.start();
+}
+
+accept_handler::~accept_handler() {
+	io.stop();
+	close(io.fd);
+}
+
+void accept_handler::io_cb(ev::io &watcher, int revents) {
+	int client;
+	try {
+		client = Accept(watcher.fd, NULL, NULL);
+		fcntl(client, F_SETFD, O_NONBLOCK);		
+	} catch (network_error &e) {
+		if (e.error_code() != EWOULDBLOCK && e.error_code() != EAGAIN && e.error_code() != EINTR) {
+			cerr << e.what() << endl;
+			/* trigger destruction of self via some kind of queue and probably recreate channel! */
+		}
+		return;
+	}
+	new handler(client); /* sucker deletes himself */
+}
+
+
+
 
 handler::handler(int fd) {
 	cerr << "Instantiating new input handler\n";
@@ -40,14 +77,14 @@ void handler::io_cb(ev::io &watcher, int revents) {
 
 			if (to_read == 0) {
 				if (state == RECV_HEADER) {
-					to_read = ntoh((uint32_t) read_queue.raw_buffer());
+					to_read = ntoh(*((uint32_t*) read_queue.raw_buffer()));
 					read_queue.reserve(to_read);
 					read_queue.seek(0);
 					state = RECV_LOG;
 				} else {
 					/* item needs to be handled */
-					auto p = read_queue.extract(); /* read_queue just got zeroes out */
-					g_write_queue.append(move(p.first), p.second);
+					pair<unique_ptr<uint8_t[]>, size_t> p = read_queue.extract(); /* read_queue just got zeroes out */
+					collector::get()->append(move(p.first), p.second);
 					to_read = 4;
 					state = RECV_HEADER;
 				}

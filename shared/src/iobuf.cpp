@@ -5,7 +5,6 @@
 #include <iterator>
 
 #include "iobuf.hpp"
-#include "bitcoin.hpp"
 
 using namespace std;
 
@@ -61,10 +60,6 @@ void append(iobuf *buf, const uint8_t *ptr, size_t len) {
 	buf->reserve(buf->location() + len);
 	copy(ptr, ptr + len, buf->offset_buffer());
 	buf->seek(buf->location() + len);
-}
-
-template <> void append<bitcoin::packed_message>(iobuf *buf, const bitcoin::packed_message *ptr) {
-	append(buf, (const uint8_t*)ptr, sizeof(*ptr) + ptr->length);
 }
 
 };
