@@ -2,15 +2,14 @@ CC=gcc
 CXX=g++
 CFLAGS=-Wall -Iincludes -I../shared/includes
 CXXFLAGS=-Wall -std=c++11 -Iincludes -I../shared/includes -g
-LDLIBS=-lev -lcrypto
+LDLIBS=-lev 
 VPATH=src:includes
 
 all: main
 
-main: main.cpp bitcoin.o crypto.o iobuf.o bitcoin_handler.o command_handler.o logger.o
+main: main.cpp collector.o
 
-clean:
+clean: 
 	rm -rf *~ *.o main
-
 
 .PHONY: all clean

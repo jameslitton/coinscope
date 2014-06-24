@@ -28,6 +28,13 @@ void iobuf::seek(size_t new_loc) {
 	loc = new_loc;
 }
 
+pair<std::unique_ptr<uint8_t[]>, size_t> iobuf::extract() {
+	auto p = make_pair(move(buffer), allocated);
+	allocated = 0;
+	loc = 0;
+	return p;
+}
+
 void iobuf::reserve(size_t x) {
 	if (x > allocated) {
 		unique_ptr<uint8_t[]> tmp(new uint8_t[x]);

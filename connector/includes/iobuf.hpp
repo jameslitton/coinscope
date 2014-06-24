@@ -30,6 +30,7 @@ public:
 		iobuf_spec::append<T>(this, ptr);
 	}
 
+	std::pair<std::unique_ptr<uint8_t[]>, size_t> extract();
 	void seek(size_t new_loc);
 
 	void reserve(size_t x);
