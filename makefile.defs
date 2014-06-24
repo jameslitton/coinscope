@@ -1,6 +1,6 @@
 CC=gcc
-#CXX=g++
-CXX=clang++
+CXX=g++
+#CXX=clang++
 CFLAGS=-Wall -Iincludes -I../shared/includes
 CXXFLAGS=-Wall -std=c++11 -Iincludes -I../shared/includes -g
 VPATH=../shared/src:src:includes

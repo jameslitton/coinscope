@@ -1,6 +1,8 @@
 #ifndef NETWRAP_HPP
 #define NETWRAP_HPP
 
+#include <cstring>
+
 #include <sys/socket.h>
 
 

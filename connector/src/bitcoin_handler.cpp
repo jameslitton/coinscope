@@ -63,8 +63,10 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 	char remote_str[16];
 	inet_ntop(AF_INET, &a_remote_addr, remote_str, sizeof(remote_str));
 	inet_ntop(AF_INET, &a_local_addr, local_str, sizeof(local_str));
-	g_log(BITCOIN) << "Initiating handler with state " << state << " on " << local_str << ":" << ntoh(a_local_port) 
-	               << " with " << remote_str << ":" << ntoh(a_remote_port);
+	g_log(BITCOIN) << "Initiating handler with state " << state << " on " 
+	               << local_str << ":" << ntoh(a_local_port) 
+	               << " with " << remote_str << ":" << ntoh(a_remote_port) 
+	               << " with id " << id;
 
 	io.set<handler, &handler::io_cb>(this);
 	if (a_state == SEND_VERSION_INIT) {

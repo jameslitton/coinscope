@@ -6,6 +6,8 @@
 #include <unordered_set>
 #include <string>
 
+#include <netinet/in.h>
+
 #include <ev++.h>
 
 #include "iobuf.hpp"
