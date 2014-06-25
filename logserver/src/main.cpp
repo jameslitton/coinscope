@@ -40,10 +40,6 @@ int setup_usock(const char *path) {
 	return sock;
 }
 
-namespace input_cxn {
-
-};
-
 int main(int argc, char *argv[]) {
 
 	/* TODO: make configurable */
