@@ -40,20 +40,33 @@ void accept_handler::io_cb(ev::io &watcher, int /*revents*/) {
 		}
 		return;
 	}
-	new handler(client); /* TODO, put him in a container, because they have to all be notified on new additions  */
 }
 
 
 handler::handler(int fd) 
-	: write_queue(), to_write(0), io(), id(collector::get().add_consumer()) {
+	: events(ev::NONE), write_queue(), to_write(0), io() {
 	cerr << "Instantiating new input handler\n";
+	io.set(fd);
 	io.set<handler, &handler::io_cb>(this);
-	// TODO: don't start this until someone actually pushed something into the queue */
-	io.start(fd, ev::WRITE); 
+	collector::get().add_consumer(this);
+	io.start(fd, events); 
 }
 
+void handler::set_events(int events) { 
+	if (events != this->events) {
+		this->events = events;
+		io.set(events);
+	}
+}
+
+int handler::get_events() const {
+	return events;
+}
+
+
+
 handler::~handler() {
-	collector::get().retire_consumer(id);
+	collector::get().retire_consumer(this);
 	if (io.fd >= 0) {
 		io.stop();
 		close(io.fd);
@@ -81,7 +94,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 
 			write_queue.seek(0);
 
-			shared_ptr<cvector<uint8_t> > p = collector::get().pop(id);
+			shared_ptr<cvector<uint8_t> > p = collector::get().pop(this);
 			if (p) {
 				/* TODO: fix to not copy */
 				uint32_t len = htonl(p->size());
@@ -90,7 +103,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 				io.set(ev::WRITE);
 				to_write = p->size() + sizeof(len);
 			} else {
-				//io.set(0); /* TODO: add thing to reset IO !!*/
+				io.set(ev::NONE);
 			}
 		}
 	}
@@ -100,7 +113,7 @@ void handler::suicide() {
 	io.stop();
 	close(io.fd);
 	io.fd = -1;
-	delete this;
+	delete this; /* eek, gotta be on the heap. TODO: fixme */
 }
 
 
