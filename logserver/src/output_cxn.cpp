@@ -17,31 +17,19 @@ namespace output_cxn {
 const uint32_t RECV_HEADER = 0x1;
 const uint32_t RECV_LOG = 0x2;
 
-accept_handler::accept_handler(int fd) : io(){
-	io.set<accept_handler, &accept_handler::io_cb>(this);
-	io.set(fd, ev::READ);
-	io.start();
+
+void handler::handle_accept_error(handlers::accept_handler<handler> *handler, const network_error &e) {
+	cerr << e.what() << endl;
+	handler->io.stop();
+	close(handler->io.fd);
+
+	/* TODO: call some function that continually tries to reacquire output accept channel
+	   and destroys this handler */
 }
 
-accept_handler::~accept_handler() {
-	io.stop();
-	close(io.fd);
+void handler::handle_accept(handlers::accept_handler<handler> *, int fd) {
+	new handler(fd); /* let him delete himself */
 }
-
-void accept_handler::io_cb(ev::io &watcher, int /*revents*/) {
-	int client;
-	try {
-		client = Accept(watcher.fd, NULL, NULL);
-		fcntl(client, F_SETFD, O_NONBLOCK);		
-	} catch (network_error &e) {
-		if (e.error_code() != EWOULDBLOCK && e.error_code() != EAGAIN && e.error_code() != EINTR) {
-			cerr << e.what() << endl;
-			/* trigger destruction of self via some kind of queue and probably recreate channel! */
-		}
-		return;
-	}
-}
-
 
 handler::handler(int fd) 
 	: events(ev::NONE), write_queue(), to_write(0), io() {
@@ -62,8 +50,6 @@ void handler::set_events(int events) {
 int handler::get_events() const {
 	return events;
 }
-
-
 
 handler::~handler() {
 	collector::get().retire_consumer(this);

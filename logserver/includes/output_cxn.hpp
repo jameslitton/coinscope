@@ -7,6 +7,8 @@
 
 #include <ev++.h>
 
+#include "accept_handler.hpp"
+#include "netwrap.hpp"
 #include "iobuf.hpp"
 
 namespace output_cxn {
@@ -32,6 +34,8 @@ public:
 	void io_cb(ev::io &watcher, int revents);
 	void set_events(int events);
 	int get_events() const;
+	static void handle_accept_error(handlers::accept_handler<handler> *handler, const network_error &e);
+	static void handle_accept(handlers::accept_handler<handler> *handler, int fd);
 private:
 	void suicide(); /* get yourself ready for suspension (e.g., stop loop activity) if safe, just delete self */
 	/* could implement move operators, but others are odd */

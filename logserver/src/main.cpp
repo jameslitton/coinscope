@@ -19,6 +19,7 @@
 #include <ev++.h>
 
 #include "netwrap.hpp"
+#include "accept_handler.hpp"
 #include "input_cxn.hpp"
 #include "output_cxn.hpp"
 
@@ -49,8 +50,9 @@ int main(int /*argc*/, char ** /*argv*/ ) {
 
 	ev::default_loop loop;
 
-	output_cxn::accept_handler out_handler(output_channel);
-	input_cxn::accept_handler in_handler(input_channel);
+	handlers::accept_handler<output_cxn::handler> out_handler(output_channel);
+	handlers::accept_handler<input_cxn::handler> in_handler(input_channel);
+
 	while(true) {
 		loop.run();
 	}
