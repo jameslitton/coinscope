@@ -46,14 +46,14 @@ void accept_handler::io_cb(ev::io &watcher, int revents) {
 
 
 
-handler::handler(int fd) : id(collector::get()->add_consumer()) {
+handler::handler(int fd) : id(collector::get().add_consumer()) {
 	cerr << "Instantiating new input handler\n";
 	io.set<handler, &handler::io_cb>(this);
 	io.start(fd, ev::WRITE);
 }
 
 handler::~handler() {
-	collector::get()->retire_consumer(id);
+	collector::get().retire_consumer(id);
 	if (io.fd >= 0) {
 		io.stop();
 		close(io.fd);
@@ -81,11 +81,12 @@ void handler::io_cb(ev::io &watcher, int revents) {
 
 			write_queue.seek(0);
 
-			shared_ptr<collector::wrapped_data> p = collector::get()->pop(id);
+			shared_ptr<cvector<uint8_t> > p = collector::get().pop(id);
 			if (p) {
-				iobuf_spec::append(&write_queue, p->data.get(), p->len);
+				/* TODO: fix to not copy */
+				iobuf_spec::append(&write_queue, p->data(), p->size());
 				io.set(ev::WRITE);
-				to_write = p->len;
+				to_write = p->size();
 			} else {
 				io.set(0); /* TODO: add thing to reset IO !!*/
 			}

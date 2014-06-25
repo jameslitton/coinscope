@@ -87,7 +87,7 @@ void handler::receive_header() {
 			regid = nonce_gen32();
 			g_log(CTRL, oldid) << "UNREGISTERING";
 			g_log(CTRL, regid) << "REGISTERING";
-			write_queue.reserve(write_queue.location() + 4);
+			write_queue.grow(write_queue.location() + 4);
 			uint32_t netorder = hton(regid);
 			write_queue.append(&netorder);
 			to_write += 4;
@@ -101,7 +101,7 @@ void handler::receive_header() {
 		read_queue.seek(0);
 		to_read = sizeof(struct message);
 	} else {
-		read_queue.reserve(sizeof(message) + to_read);
+		read_queue.grow(sizeof(message) + to_read);
 		state = (state & SEND_MASK) | RECV_PAYLOAD;
 	}
 }
@@ -115,7 +115,7 @@ void handler::receive_payload() {
 			auto pair = g_messages.insert(registered_msg(time(NULL), nonce_gen32(), msg));
 			g_log(CTRL, regid) << "Registering message " << msg;
 			if (pair.second) {
-				write_queue.reserve(write_queue.location() + 4);
+				write_queue.grow(write_queue.location() + 4);
 				uint32_t netorder = hton(pair.first->id);
 				write_queue.append(&netorder);
 				to_write += 4;

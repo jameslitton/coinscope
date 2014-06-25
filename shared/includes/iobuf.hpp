@@ -3,6 +3,8 @@
 
 #include <memory>
 
+#include "cvector.hpp"
+
 class iobuf;
 
 namespace bitcoin {
@@ -32,14 +34,13 @@ public:
 		iobuf_spec::append<T>(this, ptr);
 	}
 
-	std::pair<std::unique_ptr<uint8_t[]>, size_t> extract();
+	cvector<uint8_t> extract(size_t k_bytes);
 	void seek(size_t new_loc);
 
-	void reserve(size_t x);
+	void grow(size_t x);
 	void shrink(size_t x);
 protected:
-	std::unique_ptr<uint8_t[]> buffer;
-	size_t allocated;
+	cvector<uint8_t> buffer;
 	size_t loc;
 };
 

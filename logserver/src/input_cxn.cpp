@@ -78,13 +78,13 @@ void handler::io_cb(ev::io &watcher, int revents) {
 			if (to_read == 0) {
 				if (state == RECV_HEADER) {
 					to_read = ntoh(*((uint32_t*) read_queue.raw_buffer()));
-					read_queue.reserve(to_read);
+					read_queue.grow(to_read);
 					read_queue.seek(0);
 					state = RECV_LOG;
 				} else {
 					/* item needs to be handled */
-					pair<unique_ptr<uint8_t[]>, size_t> p = read_queue.extract(); /* read_queue just got zeroes out */
-					collector::get()->append(move(p.first), p.second);
+					cvector<uint8_t> p = read_queue.extract(read_queue.location()); /* read_queue just got zeroes out */
+					collector::get().append(move(p));
 					to_read = 4;
 					state = RECV_HEADER;
 				}

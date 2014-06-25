@@ -152,7 +152,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 						read_queue.seek(0);
 						to_read = sizeof(struct packed_message);
 					} else {
-						read_queue.reserve(sizeof(struct packed_message) + to_read);
+						read_queue.grow(sizeof(struct packed_message) + to_read);
 						state = (state & SEND_MASK) | RECV_PAYLOAD;
 					}
 					break;

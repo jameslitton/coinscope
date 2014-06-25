@@ -11,44 +11,37 @@ using namespace std;
 
 /* all event data goes into here. It is FIFO. Must optimize*/
 uint8_t * iobuf::offset_buffer() {
-	assert(buffer);
-	return buffer.get() + loc;
+	return buffer.begin() + loc;
 }
 
 uint8_t * iobuf::raw_buffer() {
-	assert(buffer);
-	return buffer.get();
+	return buffer.data();
 }
 
 size_t iobuf::location() const { return loc; }
 
 void iobuf::seek(size_t new_loc) { 
-	assert(new_loc < allocated);
+	assert(new_loc < buffer.size());
 	loc = new_loc;
 }
 
-pair<std::unique_ptr<uint8_t[]>, size_t> iobuf::extract() {
-	auto p = make_pair(move(buffer), allocated);
-	allocated = 0;
+cvector<uint8_t> iobuf::extract(size_t k_bytes) {
+	cvector<uint8_t> retbuf;
+	retbuf.swap(buffer);
 	loc = 0;
-	return p;
+	retbuf.lazy_resize(k_bytes);
+	return move(retbuf);
 }
 
-void iobuf::reserve(size_t x) {
-	if (x > allocated) {
-		unique_ptr<uint8_t[]> tmp(new uint8_t[x]);
-		copy(buffer.get(), buffer.get() + allocated, tmp.get());
-		buffer = move(tmp);
-		allocated = x;
+void iobuf::grow(size_t x) {
+	if (x > buffer.size()) {
+		buffer.lazy_resize(x);
 	}
 }
 
 void iobuf::shrink(size_t x) {
-	if (x < allocated) {
-		unique_ptr<uint8_t[]> tmp(new uint8_t[x]);
-		copy(buffer.get(), buffer.get() + x, tmp.get());
-		buffer = move(tmp);
-		allocated = x;
+	if (x < buffer.size()) {
+		buffer.lazy_resize(x);
 	}
 }
 
@@ -57,7 +50,7 @@ void iobuf::shrink(size_t x) {
 namespace iobuf_spec {
 
 void append(iobuf *buf, const uint8_t *ptr, size_t len) {
-	buf->reserve(buf->location() + len);
+	buf->grow(buf->location() + len);
 	copy(ptr, ptr + len, buf->offset_buffer());
 	buf->seek(buf->location() + len);
 }
