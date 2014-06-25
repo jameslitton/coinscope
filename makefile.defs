@@ -1,8 +1,8 @@
 CC=gcc
 CXX=g++
 #CXX=clang++
-CFLAGS=-Wall -Iincludes -I../shared/includes
-CXXFLAGS=-Wall -std=c++11 -Iincludes -I../shared/includes -g
+CFLAGS=-Wall -Wextra -Iincludes -I../shared/includes -O2
+CXXFLAGS=-Wall -Wextra -std=c++11 -Weffc++ -Iincludes -I../shared/includes -g -O2
 VPATH=../shared/src:src:includes
 
 clean: 

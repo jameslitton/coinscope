@@ -40,7 +40,7 @@ int setup_usock(const char *path) {
 	return sock;
 }
 
-int main(int argc, char *argv[]) {
+int main(int /*argc*/, char ** /*argv*/ ) {
 
 	/* TODO: make configurable */
 	mkdir("/tmp/logger", 0777);

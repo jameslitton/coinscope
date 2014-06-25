@@ -21,7 +21,7 @@
 
 using namespace std;
 
-int main(int argc, char *argv[]) {
+int main(int/* argc*/, char **/*argv*/) {
 	char path[] = "/tmp/logger/clients";
 	struct sockaddr_un addr;
 	bzero(&addr, sizeof(addr));

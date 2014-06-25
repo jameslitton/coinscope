@@ -39,6 +39,8 @@ public:
 
 	void grow(size_t x);
 	void shrink(size_t x);
+
+	iobuf() : buffer(), loc(0) {}
 protected:
 	cvector<uint8_t> buffer;
 	size_t loc;

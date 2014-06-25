@@ -17,7 +17,7 @@ namespace input_cxn {
 const uint32_t RECV_HEADER = 0x1;
 const uint32_t RECV_LOG = 0x2;
 
-accept_handler::accept_handler(int fd) {
+accept_handler::accept_handler(int fd) : io() {
 	io.set<accept_handler, &accept_handler::io_cb>(this);
 	io.set(fd, ev::READ);
 	io.start();
@@ -28,7 +28,7 @@ accept_handler::~accept_handler() {
 	close(io.fd);
 }
 
-void accept_handler::io_cb(ev::io &watcher, int revents) {
+void accept_handler::io_cb(ev::io &watcher, int/* revents*/) {
 	int client;
 	try {
 		client = Accept(watcher.fd, NULL, NULL);
@@ -46,7 +46,8 @@ void accept_handler::io_cb(ev::io &watcher, int revents) {
 
 
 
-handler::handler(int fd) {
+handler::handler(int fd) 
+	: read_queue(), to_read(4), state(RECV_HEADER), io() {
 	cerr << "Instantiating new input handler\n";
 	io.set<handler, &handler::io_cb>(this);
 	io.start(fd, ev::READ);

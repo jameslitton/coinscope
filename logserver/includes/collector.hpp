@@ -21,7 +21,7 @@ public:
 		return c;
 	}
 private:
-	collector() {}
+	collector() : idpool(0), queues() {}
 	uint32_t idpool;
 	std::unordered_map<uint32_t, 
 	                   std::deque<std::shared_ptr<cvector<uint8_t> > > > queues;
