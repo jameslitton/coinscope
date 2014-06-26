@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <deque>
 
+#include "output_cxn.hpp"
 #include "cvector.hpp"
 
 
@@ -13,17 +14,16 @@ class collector {
 public:
 
 	void append(cvector<uint8_t> data);
-	std::shared_ptr<cvector<uint8_t> > pop(uint32_t id);
-	uint32_t add_consumer(); /* adds a consumer and returns an id. */
-	void retire_consumer(uint32_t);
+	std::shared_ptr<cvector<uint8_t> > pop(output_cxn::handler *h);
+	void add_consumer(output_cxn::handler *h); /* adds a consumer handler */
+	void retire_consumer(output_cxn::handler *h);
 	static collector & get() {
 		static collector c;
 		return c;
 	}
 private:
-	collector() : idpool(0), queues() {}
-	uint32_t idpool;
-	std::unordered_map<uint32_t, 
+	collector() : queues() {}
+	std::unordered_map<output_cxn::handler *, 
 	                   std::deque<std::shared_ptr<cvector<uint8_t> > > > queues;
 };
 

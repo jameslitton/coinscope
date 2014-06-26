@@ -6,17 +6,10 @@
 #include <ev++.h>
 
 #include "iobuf.hpp"
+#include "netwrap.hpp"
+#include "accept_handler.hpp"
 
 namespace input_cxn {
-
-class accept_handler {
-public:
-	accept_handler(int fd);
-	void io_cb(ev::io &watcher, int revents);
-	~accept_handler();
-private:
-	ev::io io;
-};
 
 class handler {
 private:
@@ -29,6 +22,8 @@ public:
 	handler(int fd);
 	~handler();
 	void io_cb(ev::io &watcher, int revents);
+	static void handle_accept_error(handlers::accept_handler<handler> *handler, const network_error &e);
+	static void handle_accept(handlers::accept_handler<handler> *handler, int fd);
 private:
 	void suicide(); /* get yourself ready for suspension (e.g., stop loop activity) if safe, just delete self */
 	/* could implement move operators, but others are odd */
