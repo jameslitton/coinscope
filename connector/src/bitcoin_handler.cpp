@@ -72,8 +72,8 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 	if (a_state == SEND_VERSION_INIT) {
 		/* TODO: profile to see if extra copies are worth optimizing away */
 		struct combined_version vers(get_version(USER_AGENT, local_addr, local_port, remote_addr, remote_port));
-		unique_ptr<struct packed_message, void(*)(void*)> msg(get_message("version", vers.as_buffer(), vers.size));
-		g_log(BITCOIN_MSG, id, true) << msg.get(); /* TODO: some discontinuity between queue time and transmit complete time */
+		unique_ptr<struct packed_message, void(*)(void*)> msg(get_message("VERSION", vers.as_buffer(), vers.size));
+		g_log(BITCOIN_MSG, id, true) << msg.get() << endl; /* TODO: some discontinuity between queue time and transmit complete time */
 		write_queue.append(msg.get());
 		to_write += sizeof(struct packed_message)+msg->length;
 		io.start(fd, ev::READ | ev::WRITE);
@@ -87,7 +87,7 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 void handler::handle_message_recv(const struct packed_message *msg) { 
 	g_log(BITCOIN_MSG, id, false) << msg;
 	if (strcmp(msg->command, "ping") == 0) {
-		g_log(BITCOIN_MSG, id, true) << msg;
+		g_log(BITCOIN_MSG, id, true) << msg << endl;
 		write_queue.append(msg); /* it makes sense to just ferret this through a function and log all outgoing appends easy-peasy */
 		to_write += sizeof(struct packed_message) + msg->length;
 	}
@@ -169,16 +169,20 @@ void handler::io_cb(ev::io &watcher, int revents) {
 					state = (state & SEND_MASK) | RECV_HEADER; 
 					break;
 				case RECV_VERSION_REPLY: // they initiated handshake, send our version and verack
+
 					struct combined_version vers(get_version(USER_AGENT, remote_addr, remote_port, local_addr, local_port));
-                                        unique_ptr<struct packed_message, void(*)(void*)> vmsg(get_message("VERSION", vers.as_buffer(), vers.size));
-				 	(g_log(BITCOIN, id, true) << "VERS") << hex << vmsg.get() << endl;
-                                        size_t old_loc = write_queue.location();
+					unique_ptr<struct packed_message, void(*)(void*)> vmsg(get_message("VERSION", vers.as_buffer(), vers.size));
+
+					g_log(BITCOIN, id, true) << "VERS" << vmsg.get() << endl;
 					write_queue.append(&vmsg);
-					unique_ptr<struct packed_message, void(*)(void*)> msg(get_message("verack"));
-					g_log(BITCOIN, id, true) << msg.get();
+					to_write += vmsg->length + sizeof(struct packed_message);
+
+					unique_ptr<struct packed_message, void(*)(void*)> msg(get_message("VERACK"));
+					g_log(BITCOIN, id, true) << msg.get() << endl;
+
 					write_queue.append(msg.get());
-                                        to_write += write_queue.location() - old_loc;
-                                        write_queue.seek(old_loc);
+					to_write += vmsg->length + sizeof(struct packed_message);
+
 					if (!(state & SEND_MASK)) {
 						io.set(ev::READ|ev::WRITE);
 					}
@@ -204,7 +208,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 				return;
 			} 
 			if (r > 0) {
-                                to_write -= r;
+				to_write -= r;
 				write_queue.seek(write_queue.location() + r);
 			}
 		}
@@ -224,7 +228,6 @@ void handler::io_cb(ev::io &watcher, int revents) {
 			io.set(ev::READ);
 			state &= ~SEND_MASK;
 			write_queue.seek(0);
-
 
 		}
          
