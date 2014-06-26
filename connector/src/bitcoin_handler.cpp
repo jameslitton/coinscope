@@ -20,14 +20,14 @@ uint32_t handler::id_pool = 0;
 accept_handler::accept_handler(int fd, struct in_addr a_local_addr, uint16_t a_local_port) 
 	: local_addr(a_local_addr), local_port(a_local_port), io()
 {
-	g_log(INTERNALS) << "bitcoin accept initializer initiated, awaiting incoming client connections";
+        g_log(INTERNALS) << "bitcoin accept initializer initiated, awaiting incoming client connections" << endl;
 	io.set<accept_handler, &accept_handler::io_cb>(this);
 	io.set(fd, ev::READ);
 	io.start();
 }
 
 accept_handler::~accept_handler() {
-	g_log(INTERNALS) << "bitcoin accept handler destroyed";
+	g_log(INTERNALS) << "bitcoin accept handler destroyed" << endl;
 	io.stop();
 	close(io.fd);
 }
@@ -66,7 +66,7 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 	g_log(BITCOIN) << "Initiating handler with state " << state << " on " 
 	               << local_str << ":" << ntoh(a_local_port) 
 	               << " with " << remote_str << ":" << ntoh(a_remote_port) 
-	               << " with id " << id;
+	               << " with id " << id << endl;
 
 	io.set<handler, &handler::io_cb>(this);
 	if (a_state == SEND_VERSION_INIT) {
@@ -115,6 +115,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 		ssize_t r(1);
 		while(r > 0) { /* do all reads we can in this event handler */
 			do {
+                                read_queue.grow(read_queue.location() + to_read);
 				r = read(watcher.fd, read_queue.offset_buffer(), to_read);
 				if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 					/* 
@@ -135,9 +136,9 @@ void handler::io_cb(ev::io &watcher, int revents) {
 				}
 				if (r == 0) { /* got disconnected! */
 					/* LOG disconnect */
-					g_log(BITCOIN, id) << "Remote disconnect";
-					suicide();
-					return;
+					//g_log(BITCOIN, id) << "Remote disconnect";
+					//suicide();
+					//return;
 				}
 			} while (r > 0 && to_read > 0);
 
@@ -169,11 +170,15 @@ void handler::io_cb(ev::io &watcher, int revents) {
 					break;
 				case RECV_VERSION_REPLY: // they initiated handshake, send our version and verack
 					struct combined_version vers(get_version(USER_AGENT, remote_addr, remote_port, local_addr, local_port));
-					(g_log(BITCOIN, id, true) << "VERS").write((const char*)vers.as_buffer(), vers.size);;
-					write_queue.append(&vers);
+                                        unique_ptr<struct packed_message, void(*)(void*)> vmsg(get_message("VERSION", vers.as_buffer(), vers.size));
+				 	(g_log(BITCOIN, id, true) << "VERS") << hex << vmsg.get() << endl;
+                                        size_t old_loc = write_queue.location();
+					write_queue.append(&vmsg);
 					unique_ptr<struct packed_message, void(*)(void*)> msg(get_message("verack"));
 					g_log(BITCOIN, id, true) << msg.get();
 					write_queue.append(msg.get());
+                                        to_write += write_queue.location() - old_loc;
+                                        write_queue.seek(old_loc);
 					if (!(state & SEND_MASK)) {
 						io.set(ev::READ|ev::WRITE);
 					}
@@ -185,7 +190,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 		}
          
 	}
-
+        
 	if (revents & ev::WRITE) {
 
 		ssize_t r(1);
@@ -199,6 +204,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 				return;
 			} 
 			if (r > 0) {
+                                to_write -= r;
 				write_queue.seek(write_queue.location() + r);
 			}
 		}

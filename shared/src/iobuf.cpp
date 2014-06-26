@@ -21,7 +21,7 @@ uint8_t * iobuf::raw_buffer() {
 size_t iobuf::location() const { return loc; }
 
 void iobuf::seek(size_t new_loc) { 
-	assert(new_loc < buffer.size());
+	assert(new_loc <= buffer.size());
 	loc = new_loc;
 }
 
