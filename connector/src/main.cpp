@@ -48,7 +48,7 @@ int main(int argc, const char *argv[]) {
 	strcpy(control_addr.sun_path, control_filename);
 
 	int control_sock = Socket(AF_UNIX, SOCK_STREAM, 0);
-	fcntl(control_sock, F_SETFD, O_NONBLOCK);
+	fcntl(control_sock, F_SETFL, O_NONBLOCK);
 	Bind(control_sock, (struct sockaddr*)&control_addr, strlen(control_addr.sun_path) + 
 	     sizeof(control_addr.sun_family));
 	Listen(control_sock, 5);
@@ -60,7 +60,7 @@ int main(int argc, const char *argv[]) {
 	bitcoin_addr.sin_port = htons(8333);
 	bitcoin_addr.sin_addr.s_addr = htonl(INADDR_ANY); 
 	int bitcoin_sock = Socket(AF_INET, SOCK_STREAM, 0);
-	fcntl(bitcoin_sock, F_SETFD, O_NONBLOCK);
+	fcntl(bitcoin_sock, F_SETFL, O_NONBLOCK);
    int optval = 1;
    setsockopt(bitcoin_sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
 	Bind(bitcoin_sock, (struct sockaddr*)&bitcoin_addr, sizeof(bitcoin_addr));

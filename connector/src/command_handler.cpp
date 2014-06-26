@@ -143,7 +143,7 @@ void handler::receive_payload() {
 				addr.sin_port = payload->remote_port;
 				memcpy(&addr.sin_addr, &payload->remote_inaddr, sizeof(struct in_addr));
 				fd = Connect(sfd, (struct sockaddr*)&addr, sizeof(addr));
-				fcntl(fd, F_SETFD, O_NONBLOCK);
+				fcntl(fd, F_SETFL, O_NONBLOCK);
 			} catch (network_error &e) {
 				cerr << e.what() << endl;
 			}

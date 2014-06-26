@@ -38,7 +38,7 @@ void accept_handler::io_cb(ev::io &watcher, int revents) {
 	int client;
 	try {
 		client = Accept(watcher.fd, (struct sockaddr*)&addr, &len);
-		fcntl(client, F_SETFD, O_NONBLOCK);		
+		fcntl(client, F_SETFL, O_NONBLOCK);		
 	} catch (network_error &e) {
 		if (e.error_code() != EWOULDBLOCK && e.error_code() != EAGAIN && e.error_code() != EINTR) {
 			cerr << e.what() << endl;
@@ -46,10 +46,10 @@ void accept_handler::io_cb(ev::io &watcher, int revents) {
 		}
 		return;
 	}
-	g_log(BITCOIN) << "Accepted connection to client on fd " << client << " " << *((struct sockaddr*)&addr);
+	g_log(BITCOIN) << "Accepted connection to client on fd " << client << " " << *((struct sockaddr*)&addr) << endl;
 	/* TODO: if can be converted to smarter pointers sensibly, consider, but
 	   since libev doesn't use them makes it hard */
-	g_active_handlers.emplace(new handler(client, RECV_VERSION_REPLY, addr.sin_addr, addr.sin_port, local_addr, local_port));
+	g_active_handlers.emplace(new handler(client, RECV_VERSION_REPLY_HDR, addr.sin_addr, addr.sin_port, local_addr, local_port));
 }
 
 handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_t a_remote_port,
@@ -76,8 +76,9 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 		g_log(BITCOIN_MSG, id, true) << msg.get() << endl; /* TODO: some discontinuity between queue time and transmit complete time */
 		write_queue.append(msg.get());
 		to_write += sizeof(struct packed_message)+msg->length;
-		io.start(fd, ev::READ | ev::WRITE);
-	} else {
+		io.start(fd, ev::WRITE);
+	} else if (a_state == RECV_VERSION_REPLY_HDR) {
+		to_read = sizeof(struct packed_message);
 		io.start(fd, ev::READ);
 	}
 }
@@ -114,9 +115,11 @@ void handler::io_cb(ev::io &watcher, int revents) {
 	if ((state & RECV_MASK) && (revents & ev::READ)) {
 		ssize_t r(1);
 		while(r > 0) { /* do all reads we can in this event handler */
-			do {
-                                read_queue.grow(read_queue.location() + to_read);
-				r = read(watcher.fd, read_queue.offset_buffer(), to_read);
+			while (r > 0 && to_read > 0) {
+				read_queue.grow(read_queue.location() + to_read);
+				cerr << "Calling receive for " << to_read << " bytes\n";
+				r = recv(watcher.fd, read_queue.offset_buffer(), to_read, 0);
+				cerr << "Got " << r << endl;
 				if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 					/* 
 					   most probably a disconnect of some sort, though I
@@ -136,11 +139,11 @@ void handler::io_cb(ev::io &watcher, int revents) {
 				}
 				if (r == 0) { /* got disconnected! */
 					/* LOG disconnect */
-					//g_log(BITCOIN, id) << "Remote disconnect";
-					//suicide();
-					//return;
+					g_log(BITCOIN, id) << "Orderly disconnect" << endl;
+					suicide();
+					return;
 				}
-			} while (r > 0 && to_read > 0);
+			}
 
 			if (to_read == 0) {
 				/* item needs to be handled */
@@ -153,7 +156,6 @@ void handler::io_cb(ev::io &watcher, int revents) {
 						read_queue.seek(0);
 						to_read = sizeof(struct packed_message);
 					} else {
-						read_queue.grow(sizeof(struct packed_message) + to_read);
 						state = (state & SEND_MASK) | RECV_PAYLOAD;
 					}
 					break;
@@ -165,20 +167,29 @@ void handler::io_cb(ev::io &watcher, int revents) {
 					break;
 				case RECV_VERSION_INIT: // we initiated handshake, we expect ack
 					// next message should be zero length header with verack command
-					g_log(BITCOIN, id, false) << ((struct packed_message*) read_queue.raw_buffer());
+					g_log(BITCOIN, id, false) << ((struct packed_message*) read_queue.raw_buffer()) << endl;
 					state = (state & SEND_MASK) | RECV_HEADER; 
+					to_read = sizeof(struct packed_message);
+					break;
+				case RECV_VERSION_REPLY_HDR: // they initiated the handshake, but we've only read the header
+					to_read = ((struct packed_message*) read_queue.raw_buffer())->length;
+					state = (state & SEND_MASK) | RECV_VERSION_REPLY;
 					break;
 				case RECV_VERSION_REPLY: // they initiated handshake, send our version and verack
 
+					g_log(BITCOIN, id, false) << "Received version VERS" << ((struct packed_message*)read_queue.raw_buffer()) << endl;
+					read_queue.seek(0);
+					to_read = sizeof(struct packed_message);
+					
 					struct combined_version vers(get_version(USER_AGENT, remote_addr, remote_port, local_addr, local_port));
 					unique_ptr<struct packed_message, void(*)(void*)> vmsg(get_message("VERSION", vers.as_buffer(), vers.size));
 
-					g_log(BITCOIN, id, true) << "VERS" << vmsg.get() << endl;
+					g_log(BITCOIN, id, true) << "version " << vmsg.get() << endl;
 					write_queue.append(&vmsg);
 					to_write += vmsg->length + sizeof(struct packed_message);
 
 					unique_ptr<struct packed_message, void(*)(void*)> msg(get_message("VERACK"));
-					g_log(BITCOIN, id, true) << msg.get() << endl;
+					g_log(BITCOIN, id, true) << "verack " << msg.get() << endl;
 
 					write_queue.append(msg.get());
 					to_write += vmsg->length + sizeof(struct packed_message);
@@ -199,7 +210,10 @@ void handler::io_cb(ev::io &watcher, int revents) {
 
 		ssize_t r(1);
 		while (to_write && r > 0) { 
+			cerr << "Calling write for " << to_write << " bytes\n";
+			write_queue.grow(write_queue.location() + to_write);
 			r = write(watcher.fd, write_queue.offset_buffer(), to_write);
+			cerr << "Got " << r << endl;
 
 			if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 				/* most probably a disconnect of some sort, log error and queue object for deletion */
