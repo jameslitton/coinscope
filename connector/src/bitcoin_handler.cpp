@@ -72,7 +72,7 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 	if (a_state == SEND_VERSION_INIT) {
 		/* TODO: profile to see if extra copies are worth optimizing away */
 		struct combined_version vers(get_version(USER_AGENT, local_addr, local_port, remote_addr, remote_port));
-		unique_ptr<struct packed_message, void(*)(void*)> msg(get_message("VERSION", vers.as_buffer(), vers.size));
+		unique_ptr<struct packed_message, void(*)(void*)> msg(get_message("version", vers.as_buffer(), vers.size));
 		g_log(BITCOIN_MSG, id, true) << msg.get() << endl; /* TODO: some discontinuity between queue time and transmit complete time */
 		write_queue.append(msg.get());
 		to_write += sizeof(struct packed_message)+msg->length;
@@ -182,17 +182,21 @@ void handler::io_cb(ev::io &watcher, int revents) {
 					to_read = sizeof(struct packed_message);
 					
 					struct combined_version vers(get_version(USER_AGENT, remote_addr, remote_port, local_addr, local_port));
-					unique_ptr<struct packed_message, void(*)(void*)> vmsg(get_message("VERSION", vers.as_buffer(), vers.size));
+					unique_ptr<struct packed_message, void(*)(void*)> vmsg(get_message("version", vers.as_buffer(), vers.size));
+
+					size_t start = write_queue.location();
 
 					g_log(BITCOIN, id, true) << "version " << vmsg.get() << endl;
-					write_queue.append(&vmsg);
+					write_queue.append(vmsg.get());
 					to_write += vmsg->length + sizeof(struct packed_message);
+					write_queue.seek(start + vmsg->length + sizeof(struct packed_message));
 
-					unique_ptr<struct packed_message, void(*)(void*)> msg(get_message("VERACK"));
+					unique_ptr<struct packed_message, void(*)(void*)> msg(get_message("verack"));
 					g_log(BITCOIN, id, true) << "verack " << msg.get() << endl;
 
 					write_queue.append(msg.get());
 					to_write += vmsg->length + sizeof(struct packed_message);
+					write_queue.seek(start);
 
 					if (!(state & SEND_MASK)) {
 						io.set(ev::READ|ev::WRITE);

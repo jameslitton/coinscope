@@ -19,7 +19,7 @@ template <typename T> void append(iobuf *buf, const T *ptr) {
 	append(buf, (const uint8_t*) ptr, sizeof(*ptr));
 }
 template <> void append<bitcoin::packed_message>(iobuf *buf, const bitcoin::packed_message *ptr);
-
+template <> void append<std::unique_ptr<bitcoin::packed_message, void(*)(void*)> >(iobuf *buf, const std::unique_ptr<bitcoin::packed_message, void(*)(void*)> *ptr);
 };
 
 /* all event data goes into here. It is FIFO. Must optimize*/

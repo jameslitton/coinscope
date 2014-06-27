@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <iterator>
+#include <iostream>
 
 #include "iobuf.hpp"
 
@@ -51,6 +52,7 @@ namespace iobuf_spec {
 
 void append(iobuf *buf, const uint8_t *ptr, size_t len) {
 	buf->grow(buf->location() + len);
+	cerr << "Appending " << len << " bytes to buffer\n";
 	copy(ptr, ptr + len, buf->offset_buffer());
 	//buf->seek(buf->location() + len);
 }

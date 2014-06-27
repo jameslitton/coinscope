@@ -14,7 +14,7 @@ namespace bitcoin {
 
 extern int32_t g_last_block;
 
-const int32_t MAX_VERSION(7002);
+const int32_t MAX_VERSION(70002);
 const int32_t MIN_VERSION(209);
 const uint64_t SERVICES(1); /* corresponds to NODE_NETWORK */
 

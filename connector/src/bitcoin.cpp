@@ -5,16 +5,18 @@
 
 #include <string>
 #include <random>
+#include <iostream>
 
 #include "crypto.hpp"
 #include "iobuf.hpp"
+#include "logger.hpp"
 
 using namespace std;
 
 
 namespace bitcoin {
 
-int32_t g_last_block(0);
+int32_t g_last_block(27);
 
 
 
@@ -133,8 +135,10 @@ unique_ptr<struct packed_message, void(*)(void*)> get_message(const char *comman
 		copy(payload, payload + len, rv->payload);
 		rv->checksum = compute_checksum(payload, len);
 	} else {
-		rv->checksum = 0x5df6e0e2;
+		rv->checksum = 0xe2e0f65d;
 	}
+
+	g_log(INTERNALS) << "Sending checksum 0x" << hex << rv->checksum << endl;
 
 	return rv;
 }
@@ -146,6 +150,12 @@ namespace iobuf_spec {
 template <> void append<bitcoin::packed_message>(iobuf *buf, const bitcoin::packed_message *ptr) {
 	append(buf, (const uint8_t*)ptr, sizeof(*ptr) + ptr->length);
 }
+
+template <> void append<unique_ptr<bitcoin::packed_message, void(*)(void*)> >(iobuf *buf, const unique_ptr<bitcoin::packed_message, void(*)(void*)> *ptr) {
+	/* this is really here because it not being here caused a bug once. */
+	append(buf, (const uint8_t*)(ptr)->get(), sizeof(struct bitcoin::packed_message) + (*ptr)->length);
+}
+
 };
 
 
