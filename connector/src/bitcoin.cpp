@@ -86,12 +86,20 @@ uint8_t to_varint(uint8_t *buf, uint64_t val) {
 	return size;
 }
 
+string var_string(const std::string &input) {
+	string rv;
+	uint8_t buf[9];
+	uint8_t varint_size = to_varint(buf, input.length());
+	copy(buf, buf + varint_size, back_inserter(rv));
+	copy(input.cbegin(), input.cend(), back_inserter(rv));
+	return rv; /* copy optimized */
+}
+
 struct combined_version get_version(const string &user_agent,
                                     struct in_addr from, uint16_t from_port,
                                     struct in_addr recv, uint16_t recv_port) {
-	uint8_t buf[9];
-	uint8_t varint_size = to_varint(buf, user_agent.length());
-	struct combined_version rv(varint_size + user_agent.length());
+	string bitcoin_agent = var_string(user_agent);
+	struct combined_version rv(bitcoin_agent.size());
 	rv.version(MAX_VERSION);
 	rv.services(SERVICES);
 	rv.timestamp(time(NULL));
@@ -99,10 +107,8 @@ struct combined_version get_version(const string &user_agent,
 	set_address(&rv.prefix->from, from, from_port);
 	rv.nonce(nonce_gen64());
 
-	/* copy user agent...gross. Obviously has to have allocation large
-	   enough to handle this */
-	copy(buf, buf + varint_size, rv.user_agent());
-	copy(user_agent.cbegin(), user_agent.cend(), rv.user_agent() + varint_size);
+	/* copy bitcoinified user agent */
+	copy(bitcoin_agent.cbegin(), bitcoin_agent.cend(), rv.user_agent());
 
 	rv.start_height(g_last_block);
 	rv.relay(true);

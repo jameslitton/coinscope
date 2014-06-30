@@ -127,6 +127,10 @@ struct combined_version { /* the stupid hurts so bad */
 
 };
 
+/* convert standard C string to bitcoin var string */
+std::string var_string(const std::string &input);
+
+
 struct combined_version get_version(const std::string &user_agent,
                                     struct in_addr from, uint16_t from_port,
                                     struct in_addr recv, uint16_t recv_port);
