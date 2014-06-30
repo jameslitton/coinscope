@@ -95,6 +95,19 @@ string var_string(const std::string &input) {
 	return rv; /* copy optimized */
 }
 
+vector<uint8_t> get_inv(const vector<inv_vector> &v) {
+	vector<uint8_t> rv;
+	uint8_t buf[9];
+	uint8_t varint_size = to_varint(buf, v.size());
+	uint8_t *begin, *end;
+	begin = (uint8_t*) v.data();
+	end = (uint8_t*) (v.data() + v.size());
+
+	copy(buf, buf + varint_size, back_inserter(rv));
+	copy(begin, end, back_inserter(rv));
+	return rv;
+}
+
 struct combined_version get_version(const string &user_agent,
                                     struct in_addr from, uint16_t from_port,
                                     struct in_addr recv, uint16_t recv_port) {
@@ -124,10 +137,6 @@ uint32_t compute_checksum(const uint8_t *payload, size_t len) {
 	/* only works on little-endian */
 	uint32_t rv = *((uint32_t*) digest.get());
 	return rv;
-}
-
-unique_ptr<struct packed_message, void(*)(void*)> get_message(const char *command, const vector<uint8_t> &payload) {
-	return get_message(command, payload.data(), payload.size());
 }
 
 unique_ptr<struct packed_message, void(*)(void*)> get_message(const char *command, const uint8_t *payload, size_t len) {

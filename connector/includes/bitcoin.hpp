@@ -130,14 +130,23 @@ struct combined_version { /* the stupid hurts so bad */
 /* convert standard C string to bitcoin var string */
 std::string var_string(const std::string &input);
 
+struct inv_vector {
+	uint32_t type;
+	char hash[32];
+};
+
+std::vector<uint8_t> get_inv(const std::vector<inv_vector> &v);
 
 struct combined_version get_version(const std::string &user_agent,
                                     struct in_addr from, uint16_t from_port,
                                     struct in_addr recv, uint16_t recv_port);
 
-std::unique_ptr<struct packed_message, void(*)(void*)> get_message(const char *command, const uint8_t *payload, size_t len);
-std::unique_ptr<struct packed_message, void(*)(void*)> get_message(const char *command, 
-                                                                   std::vector<uint8_t> &payload);
+std::unique_ptr<struct packed_message, void(*)(void*)> get_message(const char * command, const uint8_t *payload, size_t len);
+inline std::unique_ptr<struct packed_message, void(*)(void*)> get_message(const char * command, 
+                                                                   std::vector<uint8_t> &payload) {
+	return get_message(command, payload.data(), payload.size());
+}
+
 inline std::unique_ptr<struct packed_message, void(*)(void*)> get_message(const char *command) { 
 	return get_message(command, NULL, 0); 
 }

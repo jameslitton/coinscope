@@ -68,6 +68,8 @@ private:
 	handler(const handler &);
 	handler(const handler &&other);
 	handler & operator=(handler &&other);
+	void do_read(ev::io &watcher, int revents);
+	void do_write(ev::io &watcher, int revents);
 };
 
 struct handler_hashfunc {
