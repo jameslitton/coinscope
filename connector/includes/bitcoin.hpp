@@ -32,8 +32,7 @@ struct packed_message {
 	uint8_t payload[0];
 } __attribute__((packed));
 
-struct packed_net_addr {
-	uint32_t time;
+struct version_packed_net_addr {
 	uint64_t services;
 	union {
 		struct {
@@ -53,12 +52,17 @@ struct packed_net_addr {
 	uint16_t port;
 } __attribute__((packed));
 
+struct full_packed_net_addr {
+	uint32_t time;
+	struct version_packed_net_addr rest;
+} __attribute__((packed));
+
 struct packed_version_prefix {
 	uint32_t version;
 	uint64_t services;
 	int64_t timestamp;
-	packed_net_addr recv;
-	packed_net_addr from;
+	struct version_packed_net_addr recv;
+	struct version_packed_net_addr from;
 	uint64_t nonce;
 	char user_agent[0]; /* why a variable length variable here!! */
 } __attribute__((packed));
@@ -85,8 +89,8 @@ struct combined_version { /* the stupid hurts so bad */
 	uint32_t version() const { return prefix->version; }
 	uint64_t services() const { return prefix->services; }
 	int64_t timestamp() const { return prefix->timestamp; }
-	const packed_net_addr * addr_recv() const { return & prefix->recv; }
-	const packed_net_addr * addr_from() const { return & prefix->from; }
+	const version_packed_net_addr * addr_recv() const { return & prefix->recv; }
+	const version_packed_net_addr * addr_from() const { return & prefix->from; }
 	uint64_t  nonce() const { return prefix->nonce; }
 	char* user_agent() { return prefix->user_agent; }
 	int32_t start_height()  const { return suffix->start_height; }
@@ -98,10 +102,10 @@ struct combined_version { /* the stupid hurts so bad */
 	void version(uint32_t version)  { prefix->version = version; }
 	void services(uint64_t services)  { prefix->services = services; }
 	void timestamp(int64_t timestamp)  { prefix->timestamp = timestamp; }
-	void addr_recv(const packed_net_addr * x) { 
+	void addr_recv(const version_packed_net_addr * x) { 
 		memcpy(&prefix->recv, x, sizeof(*x));
 	}
-	void addr_from(const packed_net_addr * x) { 
+	void addr_from(const version_packed_net_addr * x) { 
 		memcpy(&prefix->from, x, sizeof(*x));
 	}
 
@@ -121,8 +125,8 @@ struct combined_version { /* the stupid hurts so bad */
 		     agent_length + sizeof(struct packed_version_suffix)),
 		prefix((struct packed_version_prefix*) malloc(size), free) 
 	{
-		suffix = (struct packed_version_suffix *)((char *) prefix.get()) + 
-			sizeof(struct packed_version_prefix) + agent_length;
+		suffix = (struct packed_version_suffix *) (((char *) prefix.get()) + 
+		                                            sizeof(struct packed_version_prefix) + agent_length);
 	}
 
 };

@@ -36,10 +36,11 @@ uint8_t get_varint_size(const uint8_t *bytes) {
 	return rv;
 }
 
-void set_address(struct packed_net_addr *dest, struct in_addr src, uint16_t port) {
-	dest->time = time(NULL); /* NOTE: this time is uint32_t, elsewhere in the spec uint64_6 */
+void set_address(struct version_packed_net_addr *dest, struct in_addr src, uint16_t port) {
 	dest->services = SERVICES;
-	bzero(dest->addr.ipv6.as.bytes, 12);
+	bzero(dest->addr.ipv4.padding, 12);
+	dest->addr.ipv4.padding[10] = 0xFF;
+	dest->addr.ipv4.padding[11] = 0xFF;
 	dest->addr.ipv4.as.number = src.s_addr;
 	dest->port = port;
 }
@@ -115,14 +116,13 @@ struct combined_version get_version(const string &user_agent,
 	struct combined_version rv(bitcoin_agent.size());
 	rv.version(MAX_VERSION);
 	rv.services(SERVICES);
-	rv.timestamp(time(NULL));
+	//rv.timestamp(time(NULL));
 	set_address(&rv.prefix->recv, recv, recv_port);
 	set_address(&rv.prefix->from, from, from_port);
 	rv.nonce(nonce_gen64());
 
 	/* copy bitcoinified user agent */
 	copy(bitcoin_agent.cbegin(), bitcoin_agent.cend(), rv.user_agent());
-
 	rv.start_height(g_last_block);
 	rv.relay(true);
 	return rv;

@@ -8,7 +8,7 @@ using namespace std;
 ostream & operator<<(ostream &o, const struct ctrl::message *m) {
 	/* need to standardize on an output format */
 	o << "CMSG";
-	o.write((const char*) m, m->length);
+	o.write((const char*) m, m->length + sizeof(*m));
 	return o;
 }
 
@@ -20,7 +20,7 @@ ostream & operator<<(ostream &o, const struct ctrl::message &m) {
 ostream & operator<<(ostream &o, const struct bitcoin::packed_message *m) {
 	/* need to standardize on an output format */
 	o << "PMSG";
-	o.write((const char*) m, m->length);
+	o.write((const char*) m, m->length + sizeof(*m));
 	return o;
 }
 
