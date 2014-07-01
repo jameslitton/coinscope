@@ -1,5 +1,7 @@
 #include "bitcoin_handler.hpp"
 
+#include <cassert>
+
 #include <iostream>
 
 #include <unistd.h>
@@ -72,10 +74,7 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 	if (a_state == SEND_VERSION_INIT) {
 		/* TODO: profile to see if extra copies are worth optimizing away */
 		struct combined_version vers(get_version(USER_AGENT, local_addr, local_port, remote_addr, remote_port));
-		unique_ptr<struct packed_message, void(*)(void*)> msg(get_message("version", vers.as_buffer(), vers.size));
-		g_log(BITCOIN_MSG, id, true) << msg.get() << endl; /* TODO: some discontinuity between queue time and transmit complete time */
-		write_queue.append(msg.get());
-		to_write += sizeof(struct packed_message)+msg->length;
+		append_for_write(get_message("version", vers.as_buffer(), vers.size));
 		io.start(fd, ev::WRITE);
 	} else if (a_state == RECV_VERSION_REPLY_HDR) {
 		to_read = sizeof(struct packed_message);
@@ -88,15 +87,11 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 void handler::handle_message_recv(const struct packed_message *msg) { 
 	g_log(BITCOIN_MSG, id, false) << msg;
 	if (strcmp(msg->command, "ping") == 0) {
-		g_log(BITCOIN_MSG, id, true) << msg << endl;
-		write_queue.append(msg); /* it makes sense to just ferret this through a function and log all outgoing appends easy-peasy */
-		to_write += sizeof(struct packed_message) + msg->length;
+		append_for_write(msg);
 		state |= SEND_MESSAGE;
 	} else if (strcmp(msg->command, "getblocks") == 0) {
-		vector<uint8_t> payload = get_inv(vector<inv_vector>());
-		unique_ptr<struct packed_message, void(*)(void*)> out = get_message("inv", payload);
-		g_log(BITCOIN_MSG, id, true) << out.get() << endl;
-		write_queue.append(out.get());
+		vector<uint8_t> payload(get_inv(vector<inv_vector>()));
+		append_for_write(get_message("inv", payload));
 		state |= SEND_MESSAGE;
 		to_write += sizeof(struct packed_message) + msg->length;
 	}
@@ -117,6 +112,17 @@ void handler::suicide() {
 	io.fd = -1;
 	g_active_handlers.erase(this);
 	delete this;
+}
+
+size_t handler::append_for_write(const struct packed_message *m) {
+	g_log(BITCOIN_MSG, id, true) << m << endl;
+	write_queue.append(m);
+	to_write += m->length + sizeof(*m);
+	return m->length + sizeof(*m);
+}
+
+size_t handler::append_for_write(unique_ptr<struct packed_message, void(*)(void*)> m) {
+	return append_for_write(m.get());
 }
 
 void handler::do_read(ev::io &watcher, int revents) {
@@ -192,16 +198,8 @@ void handler::do_read(ev::io &watcher, int revents) {
 
 				size_t start = write_queue.location();
 
-				g_log(BITCOIN, id, true) << "version " << vmsg.get() << endl;
-				write_queue.append(vmsg.get());
-				to_write += vmsg->length + sizeof(struct packed_message);
-				write_queue.seek(start + vmsg->length + sizeof(struct packed_message));
-
-				unique_ptr<struct packed_message, void(*)(void*)> msg(get_message("verack"));
-				g_log(BITCOIN, id, true) << "verack " << msg.get() << endl;
-
-				write_queue.append(msg.get());
-				to_write += vmsg->length + sizeof(struct packed_message);
+				write_queue.seek(start + append_for_write(move(vmsg)));
+				append_for_write(get_message("verack"));
 				write_queue.seek(start);
 				state = (state & SEND_MASK) | SEND_VERSION_REPLY | RECV_HEADER;
 				break;
@@ -218,7 +216,7 @@ void handler::do_write(ev::io &watcher, int revents) {
 	ssize_t r(1);
 	while (to_write && r > 0) { 
 		cerr << "Calling write for " << to_write << " bytes\n";
-		write_queue.grow(write_queue.location() + to_write);
+		assert(write_queue.location() + to_write <= write_queue.end());
 		r = write(watcher.fd, write_queue.offset_buffer(), to_write);
 		cerr << "Got " << r << endl;
 

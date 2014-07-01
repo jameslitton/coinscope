@@ -153,8 +153,6 @@ unique_ptr<struct packed_message, void(*)(void*)> get_message(const char *comman
 		rv->checksum = 0xe2e0f65d;
 	}
 
-	g_log(INTERNALS) << "Sending checksum 0x" << hex << rv->checksum << endl;
-
 	return rv;
 }
 

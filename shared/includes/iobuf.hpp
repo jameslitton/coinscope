@@ -39,6 +39,7 @@ public:
 
 	void grow(size_t x);
 	void shrink(size_t x);
+	size_t end() { return buffer.size(); }
 
 	iobuf() : buffer(), loc(0) {}
 protected:
