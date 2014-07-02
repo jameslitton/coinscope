@@ -56,6 +56,10 @@ set<registered_msg> g_messages;
 void handler::handle_message_recv(const struct command_msg *msg) { 
 	vector<uint8_t> out;
 
+	if (msg->version > 0) {
+		g_log<CTRL>("Cannot handle version", msg->version);
+	}
+
 	if (msg->command == COMMAND_GET_CXN) {
 		g_log<CTRL>("All connections requested", regid);
 		/* format is 32 bit id, inaddr,  port */
