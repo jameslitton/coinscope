@@ -92,7 +92,9 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 void handler::handle_message_recv(const struct packed_message *msg) { 
 	g_log<BITCOIN_MSG>(id, false, msg);
 	if (strcmp(msg->command, "ping") == 0) {
-		append_for_write(msg);
+		struct packed_message pong = *msg;
+		pong.command[1] = 'o';
+		append_for_write(&pong);
 		state |= SEND_MESSAGE;
 	} else if (strcmp(msg->command, "getblocks") == 0) {
 		vector<uint8_t> payload(get_inv(vector<inv_vector>()));
