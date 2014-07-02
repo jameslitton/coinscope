@@ -39,7 +39,7 @@ namespace bc = bitcoin;
 int main(int argc, const char *argv[]) {
 
 	g_log<INTERNALS>("Starting up");
-	char control_filename[] = "/tmp/bitcoin_control";
+	char control_filename[] = CONTROL_PATH;
 	unlink(control_filename);
 
 	struct sockaddr_un control_addr;
