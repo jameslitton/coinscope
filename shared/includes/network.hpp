@@ -2,6 +2,7 @@
 #define NETWORK_HPP
 
 #include <netinet/in.h>
+#include <endian.h>
 
 inline uint32_t hton(uint32_t x) {
 	return htonl(x);
@@ -17,6 +18,14 @@ inline uint32_t ntoh(uint32_t x) {
 
 inline uint16_t ntoh(uint16_t x) {
 	return ntohs(x);
+}
+
+inline uint64_t ntoh(uint64_t x) {
+	return be64toh(x);
+}
+
+inline uint64_t hton(uint64_t x) {
+	return htobe64(x);
 }
 
 

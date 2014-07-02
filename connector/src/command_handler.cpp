@@ -1,5 +1,6 @@
 #include <iostream>
 #include <iterator>
+#include <sstream>
 #include <set>
 
 #include <unistd.h>
@@ -56,7 +57,7 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 	vector<uint8_t> out;
 
 	if (msg->command == COMMAND_GET_CXN) {
-		g_log(CTRL, regid) << "All connections requested";
+		g_log<CTRL>("All connections requested", regid);
 		/* format is 32 bit id, inaddr,  port */
 		uint8_t buffer[sizeof(uint32_t) + sizeof(in_addr)+sizeof(uint16_t)];
 		for(auto it = bc::g_active_handlers.cbegin(); it != bc::g_active_handlers.cend(); ++it) {
@@ -85,8 +86,8 @@ void handler::receive_header() {
 			uint32_t oldid = regid;
 			/* changing id and sending it. */
 			regid = nonce_gen32();
-			g_log(CTRL, oldid) << "UNREGISTERING";
-			g_log(CTRL, regid) << "REGISTERING";
+			g_log<CTRL>("UNREGISTERING", oldid);
+			g_log<CTRL>("REGISTERING", regid);
 			write_queue.grow(write_queue.location() + 4);
 			uint32_t netorder = hton(regid);
 			write_queue.append(&netorder);
@@ -94,9 +95,10 @@ void handler::receive_header() {
 			/* msg->payload should be zero length here */
 			/* send back their new user id */
 		} else {
-			g_log(CTRL, regid) << "Unknown message " << msg;
+			ostringstream oss("Unknown message: ");
+			oss << msg;
+			g_log<CTRL>(oss.str());
 			/* command and bitcoin payload messages always have a payload */
-			cerr << "bad message?" << endl;
 		}
 		read_queue.seek(0);
 		to_read = sizeof(struct message);
@@ -113,13 +115,13 @@ void handler::receive_payload() {
 		/* register message and send back its id */
 		{
 			auto pair = g_messages.insert(registered_msg(time(NULL), nonce_gen32(), msg));
-			g_log(CTRL, regid) << "Registering message " << msg;
+			g_log<CTRL>("Registering message ", regid, msg);
 			if (pair.second) {
 				write_queue.grow(write_queue.location() + 4);
 				uint32_t netorder = hton(pair.first->id);
 				write_queue.append(&netorder);
 				to_write += 4;
-				g_log(CTRL, regid) << "message registered at " << pair.first->id;
+				g_log<CTRL>("message registered", regid, pair.first->id);
 			}
 		}
 		break;
@@ -152,7 +154,7 @@ void handler::receive_payload() {
 			}
 		}
 	default:
-		g_log(CTRL, regid) << "unkown payload type" << msg;
+		g_log<CTRL>("unknown payload type", regid, msg);
 		break;
 	}
 }

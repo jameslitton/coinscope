@@ -4,11 +4,23 @@
 
 using namespace std;
 
+template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bitcoin::packed_message *m) {
+	cout << '[' << time(NULL) << "] BITCOIN_MSG: ";
+	uint32_t net_id = hton(id);
+	uint64_t net_time = hton((uint64_t)time(NULL));
+	cout.write((char*)&net_id, 4);
+	cout.write((char*)&net_time, 8);
+	cout.write((char*)&is_sender, 1);
+	cout.write((char*)m, sizeof(*m) + m->length);
+	cout << endl;
+}
+
 
 ostream & operator<<(ostream &o, const struct ctrl::message *m) {
-	/* need to standardize on an output format */
-	o << "CMSG";
-	o.write((const char*) m, m->length + sizeof(*m));
+	o << "MSG { length => " << m->length;
+	o << ", type => " << m->message_type;
+	o << ", payload => ommitted"; //o.write((char*)m, m->length + sizeof(*m));
+	o << "}\n";
 	return o;
 }
 
@@ -18,9 +30,12 @@ ostream & operator<<(ostream &o, const struct ctrl::message &m) {
 
 
 ostream & operator<<(ostream &o, const struct bitcoin::packed_message *m) {
-	/* need to standardize on an output format */
-	o << "PMSG";
-	o.write((const char*) m, m->length + sizeof(*m));
+	o << "MSG { length => " << m->length;
+	o << ", magic => " << hex << m->magic;
+	o << ", command => " << m->command;
+	o << ", checksum => " << hex << m->command;		
+	o << ", payload => ommitted"; //o.write((char*)m, m->length + sizeof(*m));
+	o << "}\n";
 	return o;
 }
 
@@ -66,15 +81,3 @@ string type_to_str(enum log_type type) {
 		break;
 	};
 }
-
-ostream & logger::operator()(enum log_type type) {
-	return cout << type_to_str(type) << ": ";
-}
-ostream & logger::operator()(enum log_type type, uint32_t id) {
-	return cout << type_to_str(type) << "(" << id << "): ";
-}
-ostream & logger::operator()(enum log_type type, uint32_t id, bool sender) { /* type has to be BITCOIN_MSG, sender is true if we sent */
-	return cout << type_to_str(type) << "(" << id << ", " << sender << "): ";
-}
-
-logger g_log;

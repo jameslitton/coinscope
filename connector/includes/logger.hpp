@@ -7,13 +7,16 @@
 #include "command_structures.hpp"
 #include "bitcoin.hpp"
 
+
 enum log_type {
-	INTERNALS,
-	CTRL,
-	ERROR,
-	BITCOIN, /* general status information */
-	BITCOIN_MSG, /* actual incoming/outgoing messages */
+	INTERNALS, /* interpret as a string */
+	CTRL, /* control messages */
+	ERROR, /* strings */
+	BITCOIN, /* general status information (strings) */
+	BITCOIN_MSG, /* actual incoming/outgoing messages as encoded */
 };
+
+
 
 
 std::ostream & operator<<(std::ostream &o, const struct ctrl::message *m);
@@ -26,13 +29,33 @@ std::ostream & operator<<(std::ostream &o, const struct sockaddr &addr);
 
 std::string type_to_str(enum log_type type);
 
-class logger { /* just a placeholder to buffer to remote socket (see logserver) */
-public:
-	std::ostream & operator()(enum log_type type);
-	std::ostream & operator()(enum log_type type, uint32_t id);
-	std::ostream & operator()(enum log_type type, uint32_t id, bool sender);  /* type has to be BITCOIN_MSG, sender is true if we sent */
-};
 
-extern logger g_log;
+/* Log format for BITCOIN_MSG types */
+// struct log_format {
+//		uint64_t timestamp; /* network byte order */
+// 	uint32_t id; /* network byte order */
+//		uint8_t is_sender;    
+// 	struct packed_message msg
+// };
+
+template <typename T>
+void g_log_inner(const T &s) {
+	std::cout << s << std::endl;
+}
+
+template <typename T, typename... Targs>
+void g_log_inner(const T &val, Targs... Fargs) {
+	std::cout << val << ' ';
+	g_log_inner(Fargs...);
+}
+
+template <int N, typename... Targs>
+void g_log(const std::string &val, Targs... Fargs) {
+	std::cout << '[' << time(NULL) << "] " << type_to_str((log_type)N) << ": ";
+	g_log_inner(val, Fargs...);
+}
+
+template <int N> void g_log(uint32_t id, bool is_sender, const struct bitcoin::packed_message *m);
+template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bitcoin::packed_message *m);
 
 #endif

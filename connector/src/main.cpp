@@ -38,7 +38,7 @@ namespace bc = bitcoin;
 
 int main(int argc, const char *argv[]) {
 
-	g_log(INTERNALS) << "Starting up";
+	g_log<INTERNALS>("Starting up");
 	char control_filename[] = "/tmp/bitcoin_control";
 	unlink(control_filename);
 
@@ -71,7 +71,7 @@ int main(int argc, const char *argv[]) {
 	ctrl::accept_handler ctrl_handler(control_sock);
 	bc::accept_handler bitcoin_handler(bitcoin_sock, bitcoin_addr.sin_addr, bitcoin_addr.sin_port);
 
-	g_log(INTERNALS) << "Entering event loop";
+	g_log<INTERNALS>("Entering event loop");
 	while(true) {
 		/* add timer to clean destruction queues */
 		/* add timer to attempt recreation of lost control channel */
@@ -81,6 +81,6 @@ int main(int argc, const char *argv[]) {
 	
 	close(control_sock);
 	close(bitcoin_sock);
-	g_log(INTERNALS) << "Orderly shutdown";
+	g_log<INTERNALS>("Orderly shutdown");
 	return EXIT_SUCCESS;
 }

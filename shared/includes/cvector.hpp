@@ -40,11 +40,18 @@ public:
 		  allocated(initial_capacity),
 		  size_(0) {}
 
-	cvector(const cvector<T,Allocator> &other) :
-		container(new T[other.allocated]),
-		allocated(other.allocated),
-		size_(other.size_) {
-		copy(other.begin(), other.end(), begin());
+	cvector(T *to_copy, size_type elements) 
+		: container(new T[elements]),
+		  allocated(size),
+		  size_(size) {
+		std::copy(to_copy, to_copy + elements, begin());
+	}
+
+	cvector(const cvector<T,Allocator> &other)
+		: container(new T[other.allocated]),
+		  allocated(other.allocated),
+		  size_(other.size_) {
+		std::copy(other.begin(), other.end(), begin());
 	}
 
 	cvector(cvector<T,Allocator> &&other):

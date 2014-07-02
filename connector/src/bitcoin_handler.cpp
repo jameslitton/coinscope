@@ -3,6 +3,7 @@
 #include <cassert>
 
 #include <iostream>
+#include <sstream>
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -22,14 +23,14 @@ uint32_t handler::id_pool = 0;
 accept_handler::accept_handler(int fd, struct in_addr a_local_addr, uint16_t a_local_port) 
 	: local_addr(a_local_addr), local_port(a_local_port), io()
 {
-	g_log(INTERNALS) << "bitcoin accept initializer initiated, awaiting incoming client connections" << endl;
+	g_log<INTERNALS>("bitcoin accept initializer initiated, awaiting incoming client connections");
 	io.set<accept_handler, &accept_handler::io_cb>(this);
 	io.set(fd, ev::READ);
 	io.start();
 }
 
 accept_handler::~accept_handler() {
-	g_log(INTERNALS) << "bitcoin accept handler destroyed" << endl;
+	g_log<INTERNALS>("bitcoin accept handler destroyed");
 	io.stop();
 	close(io.fd);
 }
@@ -43,12 +44,14 @@ void accept_handler::io_cb(ev::io &watcher, int revents) {
 		fcntl(client, F_SETFL, O_NONBLOCK);		
 	} catch (network_error &e) {
 		if (e.error_code() != EWOULDBLOCK && e.error_code() != EAGAIN && e.error_code() != EINTR) {
-			cerr << e.what() << endl;
+			g_log<ERROR>(e.what());
 			/* trigger destruction of self via some kind of queue and probably recreate channel! */
 		}
 		return;
 	}
-	g_log(BITCOIN) << "Accepted connection to client on fd " << client << " " << *((struct sockaddr*)&addr) << endl;
+
+	g_log<BITCOIN>("accepted connection to client on fd", client, "at" , *((struct sockaddr*)&addr));
+
 	/* TODO: if can be converted to smarter pointers sensibly, consider, but
 	   since libev doesn't use them makes it hard */
 	g_active_handlers.emplace(new handler(client, RECV_VERSION_REPLY_HDR, addr.sin_addr, addr.sin_port, local_addr, local_port));
@@ -65,10 +68,13 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 	char remote_str[16];
 	inet_ntop(AF_INET, &a_remote_addr, remote_str, sizeof(remote_str));
 	inet_ntop(AF_INET, &a_local_addr, local_str, sizeof(local_str));
-	g_log(BITCOIN) << "Initiating handler with state " << state << " on " 
-	               << local_str << ":" << ntoh(a_local_port) 
-	               << " with " << remote_str << ":" << ntoh(a_remote_port) 
-	               << " with id " << id << endl;
+	ostringstream oss;
+	
+	oss << "Initiating handler with state " << state << " on " 
+	    << local_str << ":" << ntoh(a_local_port) 
+	    << " with " << remote_str << ":" << ntoh(a_remote_port) 
+	    << " with id " << id << endl;
+	g_log<BITCOIN>(oss.str());
 
 	io.set<handler, &handler::io_cb>(this);
 	if (a_state == SEND_VERSION_INIT) {
@@ -83,9 +89,8 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 }
 
 
-
 void handler::handle_message_recv(const struct packed_message *msg) { 
-	g_log(BITCOIN_MSG, id, false) << msg;
+	g_log<BITCOIN_MSG>(id, false, msg);
 	if (strcmp(msg->command, "ping") == 0) {
 		append_for_write(msg);
 		state |= SEND_MESSAGE;
@@ -99,14 +104,14 @@ void handler::handle_message_recv(const struct packed_message *msg) {
 
 handler::~handler() { 
 	if (io.fd >= 0) {
-		g_log(BITCOIN, id) << "Shutting down via destructor";
+		g_log<BITCOIN>("Shutting down via destructor", id);
 		io.stop();
 		close(io.fd);
 	}
 }
 
 void handler::suicide() {
-	g_log(BITCOIN, id) << "Shutting down";
+	g_log<BITCOIN>("Shutting down", id);
 	io.stop();
 	close(io.fd);
 	io.fd = -1;
@@ -115,7 +120,7 @@ void handler::suicide() {
 }
 
 size_t handler::append_for_write(const struct packed_message *m) {
-	g_log(BITCOIN_MSG, id, true) << m << endl;
+	g_log<BITCOIN_MSG>(id, true, m);
 	write_queue.append(m);
 	to_write += m->length + sizeof(*m);
 	return m->length + sizeof(*m);
@@ -130,9 +135,9 @@ void handler::do_read(ev::io &watcher, int revents) {
 	while(r > 0) { /* do all reads we can in this event handler */
 		while (r > 0 && to_read > 0) {
 			read_queue.grow(read_queue.location() + to_read);
-			cerr << "Calling receive for " << to_read << " bytes\n";
+			g_log<INTERNALS>("Calling receive for", to_read, "bytes");
 			r = recv(watcher.fd, read_queue.offset_buffer(), to_read, 0);
-			cerr << "Got " << r << endl;
+			g_log<INTERNALS>("Got",r);
 			if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 				/* 
 				   most probably a disconnect of some sort, though I
@@ -140,8 +145,8 @@ void handler::do_read(ev::io &watcher, int revents) {
 				   across as a zero byte read, not an error... Anyway,
 				   log error and queue object for deletion
 				*/
-
-				g_log(ERROR, id) << "Got unexpected error on handler. " << strerror(errno);
+				
+				g_log<ERROR>("Got unexpected error on handler. ", id, strerror(errno));
 				suicide();
 				return;
 
@@ -152,7 +157,7 @@ void handler::do_read(ev::io &watcher, int revents) {
 			}
 			if (r == 0) { /* got disconnected! */
 				/* LOG disconnect */
-				g_log(BITCOIN, id) << "Orderly disconnect" << endl;
+				g_log<BITCOIN>("Orderly disconnect", id);
 				suicide();
 				return;
 			}
@@ -180,7 +185,7 @@ void handler::do_read(ev::io &watcher, int revents) {
 				break;
 			case RECV_VERSION_INIT: // we initiated handshake, we expect ack
 				// next message should be zero length header with verack command
-				g_log(BITCOIN, id, false) << ((struct packed_message*) read_queue.raw_buffer()) << endl;
+				g_log<BITCOIN_MSG>(id, false, (struct packed_message*) read_queue.raw_buffer());
 				state = (state & SEND_MASK) | RECV_HEADER;
 				to_read = sizeof(struct packed_message);
 				break;
@@ -189,7 +194,7 @@ void handler::do_read(ev::io &watcher, int revents) {
 				state = (state & SEND_MASK) | RECV_VERSION_REPLY;
 				break;
 			case RECV_VERSION_REPLY: // they initiated handshake, send our version and verack
-				g_log(BITCOIN, id, false) << "Received version VERS" << ((struct packed_message*)read_queue.raw_buffer()) << endl;
+				g_log<BITCOIN_MSG>(id, false, (struct packed_message*)read_queue.raw_buffer());
 				read_queue.seek(0);
 				to_read = sizeof(struct packed_message);
 					
@@ -215,14 +220,14 @@ void handler::do_write(ev::io &watcher, int revents) {
 
 	ssize_t r(1);
 	while (to_write && r > 0) { 
-		cerr << "Calling write for " << to_write << " bytes\n";
+		g_log<INTERNALS>("Calling write for", to_write, "bytes");
 		assert(write_queue.location() + to_write <= write_queue.end());
 		r = write(watcher.fd, write_queue.offset_buffer(), to_write);
-		cerr << "Got " << r << endl;
+		g_log<INTERNALS>("Got", r);
 
 		if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 			/* most probably a disconnect of some sort, log error and queue object for deletion */
-			g_log(BITCOIN, id) << "Received error on write: " << strerror(errno);
+			g_log<BITCOIN>("Received error on write:", id, strerror(errno));
 			suicide();
 			return;
 		} 
