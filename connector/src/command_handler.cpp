@@ -159,62 +159,73 @@ void handler::receive_payload() {
 	}
 }
 
-void handler::io_cb(ev::io &watcher, int revents) {
-	bool writing = to_write;
-
-	if ((state & RECV_MASK) && (revents & ev::READ)) {
-		ssize_t r(1);
-		while(r > 0) { 
-			do {
-				r = read(watcher.fd, read_queue.offset_buffer(), to_read);
-				if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN) { cerr << strerror(errno) << endl; }
-				if (r > 0) {
-					to_read -= r;
-					read_queue.seek(read_queue.location() + r);
-				}
-			} while (r > 0 && to_read > 0);
-
-			if (to_read == 0) {
-				/* item needs to be handled */
-				switch(state & RECV_MASK) {
-				case RECV_HEADER:
-					receive_header();
-					break;
-				case RECV_PAYLOAD:
-					receive_payload();
-					break;
-				default:
-					cerr << "inconceivable!" << endl;
-					break;
-				}
-				break;
-			}
-		}
-	}
-         
-
-	if (revents & ev::WRITE) {
-
-		ssize_t r(1);
-		while (to_write && r > 0) {
-			r = write(watcher.fd, write_queue.offset_buffer(), to_write);
+void handler::do_read(ev::io &watcher, int revents) {
+	ssize_t r(1);
+	while(r > 0) { 
+		do {
+			r = read(watcher.fd, read_queue.offset_buffer(), to_read);
 			if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN) { cerr << strerror(errno) << endl; }
 			if (r > 0) {
-				write_queue.seek(write_queue.location() + r);
+				to_read -= r;
+				read_queue.seek(read_queue.location() + r);
 			}
+		} while (r > 0 && to_read > 0);
+
+		if (to_read == 0) {
+			/* item needs to be handled */
+			switch(state & RECV_MASK) {
+			case RECV_HEADER:
+				receive_header();
+				break;
+			case RECV_PAYLOAD:
+				receive_payload();
+				break;
+			default:
+				cerr << "inconceivable!" << endl;
+				break;
+			}
+			break;
 		}
+	}
+}
 
-		if (to_write == 0) {
-			io.set(ev::READ);
-			/* unregister write event! */
-			state &= ~SEND_MASK;
-			write_queue.seek(0);
+void handler::do_write(ev::io &watcher, int revents) {
 
+	ssize_t r(1);
+	while (to_write && r > 0) {
+		r = write(watcher.fd, write_queue.offset_buffer(), to_write);
+		if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN) { cerr << strerror(errno) << endl; }
+		if (r > 0) {
+			write_queue.seek(write_queue.location() + r);
 		}
 	}
 
-	if (!writing && to_write) {
-		io.set(ev::WRITE);
+	if (to_write == 0) {
+		state &= ~SEND_MASK;
+		write_queue.seek(0);
+	}
+}
+
+void handler::io_cb(ev::io &watcher, int revents) {
+	uint32_t old_state = state;
+
+	if ((state & RECV_MASK) && (revents & ev::READ)) {
+		do_read(watcher, revents);
+	}
+         
+	if (revents & ev::WRITE) {
+		do_write(watcher, revents);
+	}
+
+	int events = 0;
+	if (state != old_state) {
+		if (state & SEND_MASK) {
+			events |= ev::WRITE;
+		}
+		if (state & RECV_MASK) {
+			events |= ev::READ;
+		}
+		io.set(events);
 	}
 }
 
@@ -245,9 +256,9 @@ void accept_handler::io_cb(ev::io &watcher, int revents) {
 
 			/* not sure entirely what recovery policy should be on dead control channels, probably reattempt acquisition, this is a TODO */
 			/*
-			if (watchers.erase(watcher)) {
-				delete this;
-			}
+			  if (watchers.erase(watcher)) {
+			  delete this;
+			  }
 			*/
 		}
 		return;
@@ -255,7 +266,6 @@ void accept_handler::io_cb(ev::io &watcher, int revents) {
 
 	g_active_handlers.emplace(new handler(client));
 }
-
 
 };
 

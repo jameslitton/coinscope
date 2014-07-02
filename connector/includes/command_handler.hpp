@@ -56,6 +56,9 @@ public:
 		}
 	}
 private:
+	void do_read(ev::io &watcher, int revents);
+	void do_write(ev::io &watcher, int revents);
+
 	handler & operator=(handler other);
 	handler(const handler &);
 	handler(const handler &&other);

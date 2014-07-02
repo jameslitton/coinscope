@@ -54,10 +54,11 @@ public:
 		std::copy(other.begin(), other.end(), begin());
 	}
 
-	cvector(cvector<T,Allocator> &&other):
-		container(move(other.container)),
-		allocated(other.allocated),
-		size_(other.size_) {
+	cvector(cvector<T,Allocator> &&other)
+		: container(std::move(other.container)),
+		  allocated(other.allocated),
+		  size_(other.size_) 
+	{
 		other.allocated = 0;
 		other.size_ = 0;
 	}
@@ -181,7 +182,7 @@ public:
 		size_ = count;
 	}
 
-	void resize( size_type count, const value_type& value ) {
+	void resize( size_type count, const value_type& value) {
 		if (count > size_) {
 			reserve(count);
 			iterator cur = end();
@@ -194,7 +195,7 @@ public:
 		}
 	}
 
-	void resize( size_type count ) {
+	void resize( size_type count) {
 		if (count > size_) {
 			resize(count, T());
 		} else {
@@ -202,7 +203,7 @@ public:
 		}
 	}
 		
-	void swap( cvector<T,Allocator>& other ) {
+	void swap( cvector<T,Allocator>& other) {
 		other.container.swap(container);
 		std::swap(other.allocated, allocated);
 		std::swap(other.size_, size_);
