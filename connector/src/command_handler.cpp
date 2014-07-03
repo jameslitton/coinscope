@@ -56,9 +56,6 @@ set<registered_msg> g_messages;
 void handler::handle_message_recv(const struct command_msg *msg) { 
 	vector<uint8_t> out;
 
-	if (msg->version > 0) {
-		g_log<CTRL>("Cannot handle version", msg->version);
-	}
 
 	if (msg->command == COMMAND_GET_CXN) {
 		g_log<CTRL>("All connections requested", regid);
@@ -85,6 +82,11 @@ void handler::receive_header() {
 	/* interpret data as message header and get length, reset remaining */ 
 	struct message *msg = (struct message*)read_queue.raw_buffer();
 	to_read = msg->length;
+	if (msg->version != 0) {
+		g_log<INTERNALS>("Warning: Unsupported version");
+		
+	}
+
 	if (to_read == 0) { /* payload is packed message */
 		if (msg->message_type == REGISTER) {
 			uint32_t oldid = regid;
@@ -114,6 +116,12 @@ void handler::receive_header() {
 
 void handler::receive_payload() {
 	struct message *msg = (struct message*) read_queue.raw_buffer();
+
+	if (msg->version != 0) {
+		g_log<INTERNALS>("Warning: unsupported version. Attempting to receive payload");
+		
+	}
+
 	switch(msg->message_type) {
 	case BITCOIN_PACKED_MESSAGE:
 		/* register message and send back its id */
@@ -146,15 +154,15 @@ void handler::receive_payload() {
 				/* This socket is NOT non-blocking. Is this an issue in building up connections? */
 				bzero(&addr,sizeof(addr));
 				addr.sin_family = AF_INET;
-				addr.sin_port = payload->remote_port;
-				memcpy(&addr.sin_addr, &payload->remote_inaddr, sizeof(struct in_addr));
+				addr.sin_port = payload->remote_addr.port;
+				memcpy(&addr.sin_addr, &payload->remote_addr.addr.ipv4.as.bytes, sizeof(struct in_addr));
 				fd = Connect(sfd, (struct sockaddr*)&addr, sizeof(addr));
 				fcntl(fd, F_SETFL, O_NONBLOCK);
 			} catch (network_error &e) {
 				cerr << e.what() << endl;
 			}
 			if (fd >= 0) {
-				bc::g_active_handlers.emplace(new bc::handler(fd, bc::SEND_VERSION_INIT, addr.sin_addr, addr.sin_port, payload->local_inaddr, payload->local_port));
+				bc::g_active_handlers.emplace(new bc::handler(fd, bc::SEND_VERSION_INIT, addr.sin_addr, addr.sin_port, payload->local_addr.addr.ipv4.as.in_addr, payload->local_addr.port));
 			}
 		}
 	default:

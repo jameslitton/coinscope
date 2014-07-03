@@ -1,11 +1,15 @@
 #ifndef COMMAND_STRUCTURES_HPP
 #define COMMAND_STRUCTURES_HPP
 
+/* because of the inclusion of this file, which is not designed to be
+   C clean, this file is now no longer C clean. If it is necessary to
+   make it work with C let me know. */
+
+#include "bitcoin.hpp"
+
 /* since this is not bitcoin, integers are sent in network byte order */
 
-#ifdef __cplusplus
 namespace ctrl {
-#endif
 
 #define CONTROL_PATH "/tmp/bitcoin_control"
 
@@ -25,27 +29,26 @@ enum message_types {
 };
 
 struct message {
+	uint8_t version; 
 	uint32_t length; /* sizeof(payload) */
-	uint32_t message_type;
+	uint8_t message_type;
 	uint8_t payload[0];
-};
+} __attribute__((packed));
 
 struct register_msg {
 	struct message msg; /* returns new id */
 };
 
 struct connect_payload { 
-	struct in_addr remote_inaddr;
-	uint16_t remote_port;
-	struct in_addr local_inaddr; /* these should maybe be decided by the connector...*/
-	uint16_t local_port;
+	struct bitcoin::version_packed_net_addr remote_addr;
+	/* this should probably be decided by the connector */
+	struct bitcoin::version_packed_net_addr local_addr; 
 }__attribute__((packed));
 
 
 
 struct command_msg {
-	uint32_t version;
-	uint32_t command;
+	uint8_t command;
 	uint32_t message_id;
 	/* still have to decide the format of target, as it depends on some
 	   data structure changes, but target will correspond to indices in
@@ -60,13 +63,6 @@ struct command_msg {
 */
 
 
-
-
-
-
-
-#ifdef __cplusplus
 };
-#endif
 
 #endif

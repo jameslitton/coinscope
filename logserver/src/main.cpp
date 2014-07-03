@@ -18,7 +18,7 @@
 /* third party libraries */
 #include <ev++.h>
 
-#include "netwrap.hpp"
+#include "network.hpp"
 #include "accept_handler.hpp"
 #include "input_cxn.hpp"
 #include "output_cxn.hpp"
@@ -45,8 +45,8 @@ int main(int /*argc*/, char ** /*argv*/ ) {
 
 	/* TODO: make configurable */
 	mkdir("/tmp/logger", 0777);
-	int input_channel = setup_usock("/tmp/logger/servers");
-	int output_channel = setup_usock("/tmp/logger/clients");
+	int input_channel = unix_sock_server("/tmp/logger/servers", 5, true);
+	int output_channel = unix_sock_server("/tmp/logger/clients", 5, true);
 
 	ev::default_loop loop;
 
