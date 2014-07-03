@@ -59,15 +59,16 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 
 	if (msg->command == COMMAND_GET_CXN) {
 		g_log<CTRL>("All connections requested", regid);
-		/* format is 32 bit id, inaddr,  port */
+		/* format is 32 bit id (network byte order), struct version_packed_net_addr */
 		uint8_t buffer[sizeof(uint32_t) + sizeof(in_addr)+sizeof(uint16_t)];
 		for(auto it = bc::g_active_handlers.cbegin(); it != bc::g_active_handlers.cend(); ++it) {
-			uint32_t id = (*it)->get_id();
-			memcpy(buffer, &id, sizeof(id));
-			struct in_addr addr = (*it)->get_remote_addr();
-			uint16_t port = (*it)->get_remote_port();
-			memcpy(buffer+sizeof(void*), &addr, sizeof(in_addr));
-			memcpy(buffer+sizeof(void*)+sizeof(in_addr), &port, sizeof(uint16_t));
+			uint32_t nid = hton((*it)->get_id());
+			memcpy(buffer, &nid, sizeof(nid));
+			struct bc::version_packed_net_addr remote;
+			remote.addr.ipv4.as.in_addr = (*it)->get_remote_addr();
+			remote.addr.ipv4.padding[10] = remote.addr.ipv4.padding[11] = 0xFF;
+			remote.port = (*it)->get_remote_port();
+			memcpy(buffer+sizeof(nid), &remote, sizeof(remote));
 		}
 		out.reserve(sizeof(buffer));
 		copy(buffer, buffer + sizeof(buffer), back_inserter(out));
@@ -81,12 +82,11 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 void handler::receive_header() {
 	/* interpret data as message header and get length, reset remaining */ 
 	struct message *msg = (struct message*)read_queue.raw_buffer();
-	to_read = msg->length;
+	to_read = ntoh(msg->length);
 	if (msg->version != 0) {
 		g_log<INTERNALS>("Warning: Unsupported version");
 		
 	}
-
 	if (to_read == 0) { /* payload is packed message */
 		if (msg->message_type == REGISTER) {
 			uint32_t oldid = regid;
@@ -106,10 +106,11 @@ void handler::receive_header() {
 			g_log<CTRL>(oss.str());
 			/* command and bitcoin payload messages always have a payload */
 		}
+
 		read_queue.seek(0);
 		to_read = sizeof(struct message);
+
 	} else {
-		read_queue.grow(sizeof(message) + to_read);
 		state = (state & SEND_MASK) | RECV_PAYLOAD;
 	}
 }
@@ -139,47 +140,67 @@ void handler::receive_payload() {
 		break;
 	case COMMAND:
 		handle_message_recv((struct command_msg*) msg->payload);
-		read_queue.seek(0);
-		to_read = sizeof(struct command_msg);
 		state = (state & SEND_MASK) | RECV_HEADER;
 		break;
 	case CONNECT:
 		{
-			/* format is remote_inaddr, remote_port, local_inaddr, local_port (see command structures) */
+			/* format is remote packed_net_addr, local packed_net_addr */
+			/* currently local is ignored, but would be used if we bound to more than one interface */
 			struct connect_payload *payload = (struct connect_payload*) msg->payload;
+			g_log<CTRL>("Attempting to connect for", regid);
+
 			int fd(-1);
 			struct sockaddr_in addr;
 			try {
-				int sfd = Socket(AF_UNIX, SOCK_STREAM, 0);
+				fd = Socket(AF_INET, SOCK_STREAM, 0);
 				/* This socket is NOT non-blocking. Is this an issue in building up connections? */
 				bzero(&addr,sizeof(addr));
 				addr.sin_family = AF_INET;
-				addr.sin_port = payload->remote_addr.port;
-				memcpy(&addr.sin_addr, &payload->remote_addr.addr.ipv4.as.bytes, sizeof(struct in_addr));
-				fd = Connect(sfd, (struct sockaddr*)&addr, sizeof(addr));
+				addr.sin_port = payload->remote.port;
+				memcpy(&addr.sin_addr, &payload->remote.addr.ipv4.as.bytes, sizeof(struct in_addr));
+				Connect(fd, (struct sockaddr*)&addr, sizeof(addr));
 				fcntl(fd, F_SETFL, O_NONBLOCK);
 			} catch (network_error &e) {
-				cerr << e.what() << endl;
+				g_log<ERROR>(e.what(), "(command_handler)");
 			}
 			if (fd >= 0) {
-				bc::g_active_handlers.emplace(new bc::handler(fd, bc::SEND_VERSION_INIT, addr.sin_addr, addr.sin_port, payload->local_addr.addr.ipv4.as.in_addr, payload->local_addr.port));
+				bc::g_active_handlers.emplace(new bc::handler(fd, bc::SEND_VERSION_INIT, addr.sin_addr, addr.sin_port, payload->local.addr.ipv4.as.in_addr, payload->local.port));
 			}
 		}
+		break;
 	default:
 		g_log<CTRL>("unknown payload type", regid, msg);
 		break;
 	}
+
+	to_read = sizeof(struct message);
+	state = (state & SEND_MASK) | RECV_HEADER;
+
 }
 
 void handler::do_read(ev::io &watcher, int revents) {
 	ssize_t r(1);
 	while(r > 0) { 
 		do {
-			r = read(watcher.fd, read_queue.offset_buffer(), to_read);
-			if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN) { cerr << strerror(errno) << endl; }
+			read_queue.grow(read_queue.location() + to_read);
+			r = recv(watcher.fd, read_queue.offset_buffer(), to_read, 0);
+			if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN) { 
+				g_log<ERROR>(strerror(errno), "(command_handler)");
+			}
 			if (r > 0) {
 				to_read -= r;
 				read_queue.seek(read_queue.location() + r);
+			}
+
+			if (r == 0) { /* got disconnected! */
+				/* LOG disconnect */
+				g_log<CTRL>("Orderly disconnect", id);
+				io.stop();
+				close(io.fd);
+				io.fd = -1;
+				g_active_handlers.erase(this);
+				delete this;
+				return;
 			}
 		} while (r > 0 && to_read > 0);
 
@@ -206,7 +227,9 @@ void handler::do_write(ev::io &watcher, int revents) {
 	ssize_t r(1);
 	while (to_write && r > 0) {
 		r = write(watcher.fd, write_queue.offset_buffer(), to_write);
-		if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN) { cerr << strerror(errno) << endl; }
+		if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN) { 
+			g_log<ERROR>(strerror(errno), "(command_handler)");
+		}
 		if (r > 0) {
 			write_queue.seek(write_queue.location() + r);
 		}
@@ -255,16 +278,17 @@ accept_handler::~accept_handler() {
 
 
 void accept_handler::io_cb(ev::io &watcher, int revents) {
-	struct sockaddr addr;
-	socklen_t len;
+	struct sockaddr addr = {0};
+	socklen_t len(0);
 	int client;
 	try {
 		client = Accept(watcher.fd, &addr, &len);
 	} catch (network_error &e) {
 		if (e.error_code() != EWOULDBLOCK && e.error_code() != EAGAIN) {
-			cerr << e.what() << endl;
+			g_log<ERROR>(e.what(), "(command_handler)");
 			watcher.stop();
 			close(watcher.fd);
+			delete this;
 
 			/* not sure entirely what recovery policy should be on dead control channels, probably reattempt acquisition, this is a TODO */
 			/*

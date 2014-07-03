@@ -17,7 +17,7 @@ template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bi
 
 
 ostream & operator<<(ostream &o, const struct ctrl::message *m) {
-	o << "MSG { length => " << m->length;
+	o << "MSG { length => " << ntoh(m->length);
 	o << ", type => " << m->message_type;
 	o << ", payload => ommitted"; //o.write((char*)m, m->length + sizeof(*m));
 	o << "}\n";

@@ -33,6 +33,7 @@ accept_handler::~accept_handler() {
 	g_log<INTERNALS>("bitcoin accept handler destroyed");
 	io.stop();
 	close(io.fd);
+	io.fd = -1;
 }
 
 void accept_handler::io_cb(ev::io &watcher, int revents) {
@@ -44,7 +45,7 @@ void accept_handler::io_cb(ev::io &watcher, int revents) {
 		fcntl(client, F_SETFL, O_NONBLOCK);		
 	} catch (network_error &e) {
 		if (e.error_code() != EWOULDBLOCK && e.error_code() != EAGAIN && e.error_code() != EINTR) {
-			g_log<ERROR>(e.what());
+			g_log<ERROR>(e.what(), "(bitcoin_handler)");
 			/* trigger destruction of self via some kind of queue and probably recreate channel! */
 		}
 		return;
@@ -62,6 +63,7 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 	remote_addr(a_remote_addr), remote_port(a_remote_port),
 	local_addr(a_local_addr), local_port(a_local_port), 
 	state(a_state), 
+	io(),
 	id(id_pool++) 
 {
 	char local_str[16];
@@ -78,14 +80,16 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 
 	io.set<handler, &handler::io_cb>(this);
 	if (a_state == SEND_VERSION_INIT) {
+		io.set(fd, ev::WRITE);
 		/* TODO: profile to see if extra copies are worth optimizing away */
 		struct combined_version vers(get_version(USER_AGENT, local_addr, local_port, remote_addr, remote_port));
 		append_for_write(get_message("version", vers.as_buffer(), vers.size));
-		io.start(fd, ev::WRITE);
 	} else if (a_state == RECV_VERSION_REPLY_HDR) {
+		io.set(fd, ev::READ);
 		to_read = sizeof(struct packed_message);
-		io.start(fd, ev::READ);
 	}
+	assert(io.fd > 0);
+	io.start();
 }
 
 
@@ -134,6 +138,7 @@ size_t handler::append_for_write(unique_ptr<struct packed_message, void(*)(void*
 }
 
 void handler::do_read(ev::io &watcher, int revents) {
+	assert(watcher.fd >= 0);
 	ssize_t r(1);
 	while(r > 0) { /* do all reads we can in this event handler */
 		while (r > 0 && to_read > 0) {
@@ -148,8 +153,11 @@ void handler::do_read(ev::io &watcher, int revents) {
 				   across as a zero byte read, not an error... Anyway,
 				   log error and queue object for deletion
 				*/
-				
-				g_log<ERROR>("Got unexpected error on handler. ", id, strerror(errno));
+				if (errno == ECONNRESET) {
+					g_log<BITCOIN>("Connection reset by peer", id);
+				} else {
+					g_log<ERROR>("Got unexpected error on handler. ", id, strerror(errno));
+				}
 				suicide();
 				return;
 

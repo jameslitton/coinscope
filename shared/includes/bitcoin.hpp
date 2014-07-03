@@ -77,6 +77,7 @@ struct combined_version { /* the stupid hurts so bad */
 	/* in practice prefix and suffix should be in contiguous memory
 	   from the prefix allocation, i.e., prefix should be in wire
 	   format to send combined and no need to free suffix */
+public:
 	size_t size;
 	std::unique_ptr<struct packed_version_prefix, void(*)(void*)> prefix;
 	struct packed_version_suffix *suffix;
@@ -123,12 +124,25 @@ struct combined_version { /* the stupid hurts so bad */
 	combined_version(size_t agent_length) : 
 		size(sizeof(struct packed_version_prefix) + 
 		     agent_length + sizeof(struct packed_version_suffix)),
-		prefix((struct packed_version_prefix*) malloc(size), free) 
+		prefix((struct packed_version_prefix*) malloc(size), free),
+		suffix((struct packed_version_suffix *) (((char *) prefix.get()) + 
+		                                         sizeof(struct packed_version_prefix) + agent_length))
 	{
-		suffix = (struct packed_version_suffix *) (((char *) prefix.get()) + 
-		                                            sizeof(struct packed_version_prefix) + agent_length);
+	}
+	combined_version(combined_version &&other) 
+		: size(other.size),
+		  prefix(NULL,free),
+		  suffix(other.suffix)
+	{
+		prefix.swap(other.prefix);
+		other.size = 0;
+		suffix = NULL;
 	}
 
+private:
+	combined_version & operator=(combined_version other);
+	combined_version(const combined_version &);
+	combined_version & operator=(combined_version &&other);
 };
 
 /* convert standard C string to bitcoin var string */

@@ -83,7 +83,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 			shared_ptr<cvector<uint8_t> > p = collector::get().pop(this);
 			if (p) {
 				/* TODO: fix to not copy */
-				uint32_t len = htonl(p->size());
+				uint32_t len = hton(p->size());
 				write_queue.append(&len);
 				iobuf_spec::append(&write_queue, p->data(), p->size());
 				io.set(ev::WRITE);
