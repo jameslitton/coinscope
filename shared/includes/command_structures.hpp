@@ -11,8 +11,6 @@
 
 namespace ctrl {
 
-#define CONTROL_PATH "/tmp/bitcoin_control"
-
 enum commands {
 	COMMAND_GET_CXN,
 	COMMAND_DISCONNECT,

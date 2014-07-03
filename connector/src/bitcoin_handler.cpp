@@ -23,14 +23,14 @@ uint32_t handler::id_pool = 0;
 accept_handler::accept_handler(int fd, struct in_addr a_local_addr, uint16_t a_local_port) 
 	: local_addr(a_local_addr), local_port(a_local_port), io()
 {
-	g_log<INTERNALS>("bitcoin accept initializer initiated, awaiting incoming client connections");
+	g_log<DEBUG>("bitcoin accept initializer initiated, awaiting incoming client connections");
 	io.set<accept_handler, &accept_handler::io_cb>(this);
 	io.set(fd, ev::READ);
 	io.start();
 }
 
 accept_handler::~accept_handler() {
-	g_log<INTERNALS>("bitcoin accept handler destroyed");
+	g_log<DEBUG>("bitcoin accept handler destroyed");
 	io.stop();
 	close(io.fd);
 	io.fd = -1;
@@ -143,9 +143,9 @@ void handler::do_read(ev::io &watcher, int revents) {
 	while(r > 0) { /* do all reads we can in this event handler */
 		while (r > 0 && to_read > 0) {
 			read_queue.grow(read_queue.location() + to_read);
-			g_log<INTERNALS>("Calling receive for", to_read, "bytes");
+			g_log<DEBUG>("Calling receive for", to_read, "bytes");
 			r = recv(watcher.fd, read_queue.offset_buffer(), to_read, 0);
-			g_log<INTERNALS>("Got",r);
+			g_log<DEBUG>("Got",r);
 			if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 				/* 
 				   most probably a disconnect of some sort, though I
@@ -231,10 +231,10 @@ void handler::do_write(ev::io &watcher, int revents) {
 
 	ssize_t r(1);
 	while (to_write && r > 0) { 
-		g_log<INTERNALS>("Calling write for", to_write, "bytes");
+		g_log<DEBUG>("Calling write for", to_write, "bytes");
 		assert(write_queue.location() + to_write <= write_queue.end());
 		r = write(watcher.fd, write_queue.offset_buffer(), to_write);
-		g_log<INTERNALS>("Got", r);
+		g_log<DEBUG>("Got", r);
 
 		if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 			/* most probably a disconnect of some sort, log error and queue object for deletion */

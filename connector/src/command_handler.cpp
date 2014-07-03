@@ -84,7 +84,7 @@ void handler::receive_header() {
 	struct message *msg = (struct message*)read_queue.raw_buffer();
 	to_read = ntoh(msg->length);
 	if (msg->version != 0) {
-		g_log<INTERNALS>("Warning: Unsupported version");
+		g_log<DEBUG>("Warning: Unsupported version");
 		
 	}
 	if (to_read == 0) { /* payload is packed message */
@@ -119,7 +119,7 @@ void handler::receive_payload() {
 	struct message *msg = (struct message*) read_queue.raw_buffer();
 
 	if (msg->version != 0) {
-		g_log<INTERNALS>("Warning: unsupported version. Attempting to receive payload");
+		g_log<DEBUG>("Warning: unsupported version. Attempting to receive payload");
 		
 	}
 

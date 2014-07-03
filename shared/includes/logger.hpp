@@ -9,7 +9,7 @@
 
 
 enum log_type {
-	INTERNALS, /* interpret as a string */
+	DEBUG, /* interpret as a string */
 	CTRL, /* control messages */
 	ERROR, /* strings */
 	BITCOIN, /* general status information (strings) */

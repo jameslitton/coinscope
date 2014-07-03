@@ -7,9 +7,7 @@ using namespace std;
 template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bitcoin::packed_message *m) {
 	cout << '[' << time(NULL) << "] BITCOIN_MSG: ";
 	uint32_t net_id = hton(id);
-	uint64_t net_time = hton((uint64_t)time(NULL));
 	cout.write((char*)&net_id, 4);
-	cout.write((char*)&net_time, 8);
 	cout.write((char*)&is_sender, 1);
 	cout.write((char*)m, sizeof(*m) + m->length);
 	cout << endl;
@@ -61,8 +59,8 @@ ostream & operator<<(ostream &o, const struct sockaddr &addr) {
 
 string type_to_str(enum log_type type) {
 	switch(type) {
-	case INTERNALS:
-		return "INTERNALS";
+	case DEBUG:
+		return "DEBUG";
 		break;
 	case CTRL:
 		return "CTRL";
