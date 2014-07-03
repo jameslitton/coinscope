@@ -30,6 +30,7 @@
 #include "netwrap.hpp"
 #include "logger.hpp"
 #include "network.hpp"
+#include "config.hpp"
 
 using namespace std;
 
@@ -38,9 +39,17 @@ namespace bc = bitcoin;
 
 int main(int argc, const char *argv[]) {
 
+	if (argc == 2) {
+		load_config(argv[1]);
+	} else {
+		load_config("../netmine.cfg");
+	}
+
+	const libconfig::Config *cfg(get_config());
+
 	g_log<DEBUG>("Starting up");
 
-	char control_filename[] = CONTROL_PATH;
+	const char *control_filename = cfg->lookup("connector.control_path");
 	unlink(control_filename);
 
 	struct sockaddr_un control_addr;
@@ -52,25 +61,52 @@ int main(int argc, const char *argv[]) {
 	fcntl(control_sock, F_SETFL, O_NONBLOCK);
 	Bind(control_sock, (struct sockaddr*)&control_addr, strlen(control_addr.sun_path) + 
 	     sizeof(control_addr.sun_family));
-	Listen(control_sock, 5);
-
-	/* TODO, make configurable! */
-	struct sockaddr_in bitcoin_addr;
-	bzero(&bitcoin_addr, sizeof(bitcoin_addr));
-	bitcoin_addr.sin_family = AF_INET;
-	bitcoin_addr.sin_port = htons(8333);
-	bitcoin_addr.sin_addr.s_addr = htonl(INADDR_ANY); 
-	int bitcoin_sock = Socket(AF_INET, SOCK_STREAM, 0);
-	fcntl(bitcoin_sock, F_SETFL, O_NONBLOCK);
-   int optval = 1;
-   setsockopt(bitcoin_sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
-	Bind(bitcoin_sock, (struct sockaddr*)&bitcoin_addr, sizeof(bitcoin_addr));
-	Listen(bitcoin_sock, 128);
-	
+	Listen(control_sock, cfg->lookup("connector.control_listen"));
 
 	ev::default_loop loop;
+
+
+	vector<unique_ptr<bc::accept_handler> > bc_accept_handlers; /* form is to get around some move semantics with ev::io I don't want to muck it up */
+
+	libconfig::Setting &list = cfg->lookup("connector.bitcoin.listeners");
+	for(int index = 0; index < list.getLength(); ++index) {
+		libconfig::Setting &setting = list[index];
+		string family((const char*)setting[0]);
+		string ipv4((const char*)setting[1]);
+		uint16_t port((int)setting[2]);
+		int backlog(setting[3]);
+
+		g_log<BITCOIN>("Attempting to instantiate listener on ", family, 
+		               ipv4, port, "with backlog", backlog);
+
+		if (family != "AF_INET") {
+			g_log<ERROR>("Family", family, "not supported. Skipping");
+			continue;
+		}
+
+		struct sockaddr_in bitcoin_addr;
+		bzero(&bitcoin_addr, sizeof(bitcoin_addr));
+		bitcoin_addr.sin_family = AF_INET;
+		bitcoin_addr.sin_port = htons(port);
+		if (inet_pton(AF_INET, ipv4.c_str(), &bitcoin_addr.sin_addr) != 1) {
+			g_log<ERROR>("Bad address format on address", index, strerror(errno));
+			continue;
+		}
+
+		bitcoin_addr.sin_addr.s_addr = htonl(INADDR_ANY); 
+		int bitcoin_sock = Socket(AF_INET, SOCK_STREAM, 0);
+		fcntl(bitcoin_sock, F_SETFL, O_NONBLOCK);
+		int optval = 1;
+		setsockopt(bitcoin_sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+		Bind(bitcoin_sock, (struct sockaddr*)&bitcoin_addr, sizeof(bitcoin_addr));
+		Listen(bitcoin_sock, backlog);
+
+		bc_accept_handlers.emplace_back(new bc::accept_handler(bitcoin_sock, bitcoin_addr.sin_addr, bitcoin_addr.sin_port));
+
+	}
+
+
 	ctrl::accept_handler ctrl_handler(control_sock);
-	bc::accept_handler bitcoin_handler(bitcoin_sock, bitcoin_addr.sin_addr, bitcoin_addr.sin_port);
 
 	g_log<DEBUG>("Entering event loop");
 	while(true) {
@@ -80,8 +116,6 @@ int main(int argc, const char *argv[]) {
 		loop.run();
 	}
 	
-	close(control_sock);
-	close(bitcoin_sock);
-	g_log<DEBUG>("Orderly shutdown");
+	g_log<DEBUG>("Orderly shutdown of connector");
 	return EXIT_SUCCESS;
 }

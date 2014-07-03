@@ -36,7 +36,7 @@ accept_handler::~accept_handler() {
 	io.fd = -1;
 }
 
-void accept_handler::io_cb(ev::io &watcher, int revents) {
+void accept_handler::io_cb(ev::io &watcher, int /*revents*/) {
 	struct sockaddr_in addr;
 	socklen_t len;
 	int client;
@@ -58,13 +58,14 @@ void accept_handler::io_cb(ev::io &watcher, int revents) {
 	g_active_handlers.emplace(new handler(client, RECV_VERSION_REPLY_HDR, addr.sin_addr, addr.sin_port, local_addr, local_port));
 }
 
-handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_t a_remote_port,
-                 in_addr a_local_addr, uint16_t a_local_port) : 
-	remote_addr(a_remote_addr), remote_port(a_remote_port),
-	local_addr(a_local_addr), local_port(a_local_port), 
-	state(a_state), 
-	io(),
-	id(id_pool++) 
+handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_t a_remote_port, in_addr a_local_addr, uint16_t a_local_port) 
+	: read_queue(), to_read(0),
+	  write_queue(), to_write(0),
+	  remote_addr(a_remote_addr), remote_port(a_remote_port),
+	  local_addr(a_local_addr), local_port(a_local_port), 
+	  state(a_state), 
+	  io(),
+	  id(id_pool++) 
 {
 	char local_str[16];
 	char remote_str[16];
@@ -137,7 +138,7 @@ size_t handler::append_for_write(unique_ptr<struct packed_message, void(*)(void*
 	return append_for_write(m.get());
 }
 
-void handler::do_read(ev::io &watcher, int revents) {
+void handler::do_read(ev::io &watcher, int /* revents */) {
 	assert(watcher.fd >= 0);
 	ssize_t r(1);
 	while(r > 0) { /* do all reads we can in this event handler */
@@ -227,7 +228,7 @@ void handler::do_read(ev::io &watcher, int revents) {
 
 }
 
-void handler::do_write(ev::io &watcher, int revents) {
+void handler::do_write(ev::io &watcher, int /*revents*/) {
 
 	ssize_t r(1);
 	while (to_write && r > 0) { 

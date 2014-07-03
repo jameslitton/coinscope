@@ -19,6 +19,7 @@
 #include "network.hpp"
 #include "command_structures.hpp"
 #include "bitcoin.hpp"
+#include "config.hpp"
 
 /* This is a simple test client to demonstrate use of the connector */
 
@@ -33,8 +34,17 @@ struct connect_message {
 	struct connect_payload payload;
 } __attribute__((packed));
 
-int main(int /*argc*/, char **/*argv[]*/) {
-	int sock = unix_sock_client(CONTROL_PATH, false);
+int main(int argc, char *argv[]) {
+
+	if (argc == 2) {
+		load_config(argv[1]);
+	} else {
+		load_config("../netmine.cfg");
+	}
+
+	const libconfig::Config *cfg(get_config());
+
+	int sock = unix_sock_client((const char*)cfg->lookup("connector.control_path"), false);
 
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 	struct connect_message message = { 0, hton((uint32_t)sizeof(connect_payload)), CONNECT, {{0},{0}} };

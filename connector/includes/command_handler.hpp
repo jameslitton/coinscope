@@ -31,14 +31,25 @@ private:
 
 	uint32_t state;
 
-	static uint32_t id_pool;
 
 	uint32_t id;
 	uint32_t regid;
 	ev::io io;
 
+	static uint32_t id_pool;
+
+
 public:
-	handler(int fd) : to_read(sizeof(struct message)),state(RECV_HEADER), id(id_pool++), regid(nonce_gen32()) {
+	handler(int fd) 
+		: read_queue(),
+		  to_read(sizeof(struct message)),
+		  write_queue(),
+		  to_write(0),
+		  state(RECV_HEADER), 
+		  id(id_pool++), 
+		  regid(nonce_gen32()),
+		  io()
+	{
 		io.set<handler, &handler::io_cb>(this);
 		io.set(fd, ev::READ);
 		io.start();
