@@ -5,7 +5,13 @@ CFLAGS=-Wall -Wextra -Iincludes -I../shared/includes -O2
 CXXFLAGS=-Wall -Wextra -std=c++11 -Weffc++ -Iincludes -I../shared/includes -g -O2
 VPATH=../shared/src:src:includes
 
+
+default: all # to be defined in children
+
 clean: 
 	rm -rf *~ *.o main
 
-.PHONY: all clean
+../shared/%.o: ../shared/src/%.cpp
+	$(MAKE) -C ../shared $(subst ../shared/, , $@)
+
+.PHONY: all clean default

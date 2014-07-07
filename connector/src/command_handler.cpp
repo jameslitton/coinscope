@@ -178,7 +178,7 @@ void handler::receive_payload() {
 
 }
 
-void handler::do_read(ev::io &watcher, int revents) {
+void handler::do_read(ev::io &watcher, int /* revents */) {
 	ssize_t r(1);
 	while(r > 0) { 
 		do {
@@ -222,7 +222,7 @@ void handler::do_read(ev::io &watcher, int revents) {
 	}
 }
 
-void handler::do_write(ev::io &watcher, int revents) {
+void handler::do_write(ev::io &watcher, int /* revents */) {
 
 	ssize_t r(1);
 	while (to_write && r > 0) {
@@ -265,7 +265,8 @@ void handler::io_cb(ev::io &watcher, int revents) {
 }
 
 
-accept_handler::accept_handler(int fd) { 
+accept_handler::accept_handler(int fd) 
+	: io() { 
 	io.set<accept_handler, &accept_handler::io_cb>(this);
 	io.set(fd, ev::READ);
 	io.start();
@@ -277,8 +278,8 @@ accept_handler::~accept_handler() {
 }
 
 
-void accept_handler::io_cb(ev::io &watcher, int revents) {
-	struct sockaddr addr = {0};
+void accept_handler::io_cb(ev::io &watcher, int /* revents */) {
+	struct sockaddr addr = {0, {0}};
 	socklen_t len(0);
 	int client;
 	try {

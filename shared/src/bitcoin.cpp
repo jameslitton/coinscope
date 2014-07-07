@@ -10,14 +10,13 @@
 #include "crypto.hpp"
 #include "iobuf.hpp"
 #include "logger.hpp"
+#include "config.hpp"
+
 
 using namespace std;
 
 
 namespace bitcoin {
-
-int32_t g_last_block(27);
-
 
 
 uint8_t get_varint_size(const uint8_t *bytes) {
@@ -112,6 +111,9 @@ vector<uint8_t> get_inv(const vector<inv_vector> &v) {
 struct combined_version get_version(const string &user_agent,
                                     struct in_addr from, uint16_t from_port,
                                     struct in_addr recv, uint16_t recv_port) {
+	static const libconfig::Config *cfg(get_config());
+
+
 	string bitcoin_agent = var_string(user_agent);
 	struct combined_version rv(bitcoin_agent.size());
 	rv.version(MAX_VERSION);
@@ -123,7 +125,7 @@ struct combined_version get_version(const string &user_agent,
 
 	/* copy bitcoinified user agent */
 	copy(bitcoin_agent.cbegin(), bitcoin_agent.cend(), rv.user_agent());
-	rv.start_height(g_last_block);
+	rv.start_height(cfg->lookup("connector.bitcoin.start_height"));
 	rv.relay(true);
 	return rv;
 }
@@ -140,9 +142,11 @@ uint32_t compute_checksum(const uint8_t *payload, size_t len) {
 }
 
 unique_ptr<struct packed_message, void(*)(void*)> get_message(const char *command, const uint8_t *payload, size_t len) {
+	static const libconfig::Config *cfg(get_config());
+
 	/* TODO: special version for zero payload for faster allocation */
 	unique_ptr<struct packed_message, void(*)(void*)> rv((struct packed_message *) malloc(sizeof(struct packed_message) + len), free);
-	rv->magic = 0xD9B4BEF9;
+	rv->magic = cfg->lookup("connector.bitcoin.magic");
 	bzero(rv->command, sizeof(rv->command));
 	strncpy(rv->command, command, sizeof(rv->command));
 	rv->length = len;

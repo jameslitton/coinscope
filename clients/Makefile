@@ -3,5 +3,5 @@ include ../makefile.defs
 
 all: connect
 
-connect: bitcoin.o network.o crypto.o iobuf.o config.o
+connect: ../shared/bitcoin.o ../shared/network.o ../shared/crypto.o ../shared/iobuf.o ../shared/config.o
 
