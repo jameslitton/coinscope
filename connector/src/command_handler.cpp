@@ -60,7 +60,7 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 	if (msg->command == COMMAND_GET_CXN) {
 		g_log<CTRL>("All connections requested", regid);
 		/* format is 32 bit id (network byte order), struct version_packed_net_addr */
-		uint8_t buffer[sizeof(uint32_t) + sizeof(in_addr)+sizeof(uint16_t)];
+		uint8_t buffer[sizeof(uint32_t) + sizeof(struct bc::version_packed_net_addr)];
 		for(auto it = bc::g_active_handlers.cbegin(); it != bc::g_active_handlers.cend(); ++it) {
 			uint32_t nid = hton((*it)->get_id());
 			memcpy(buffer, &nid, sizeof(nid));

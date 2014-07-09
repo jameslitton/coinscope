@@ -146,7 +146,7 @@ unique_ptr<struct packed_message, void(*)(void*)> get_message(const char *comman
 
 	/* TODO: special version for zero payload for faster allocation */
 	unique_ptr<struct packed_message, void(*)(void*)> rv((struct packed_message *) malloc(sizeof(struct packed_message) + len), free);
-	rv->magic = cfg->lookup("connector.bitcoin.magic");
+	rv->magic = (uint64_t)cfg->lookup("connector.bitcoin.magic");
 	bzero(rv->command, sizeof(rv->command));
 	strncpy(rv->command, command, sizeof(rv->command));
 	rv->length = len;
