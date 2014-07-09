@@ -98,7 +98,7 @@ void handler::handle_message_recv(const struct packed_message *msg) {
 	g_log<BITCOIN_MSG>(id, false, msg);
 	if (strcmp(msg->command, "ping") == 0) {
 		struct packed_message *pong = static_cast<struct packed_message*>(alloca(sizeof(pong) + msg->length));
-		memcpy(pong, msg, sizeof(pong) + msg->length);
+		memcpy(pong, msg, sizeof(*pong) + msg->length);
 		pong->command[1] = 'o';
 		append_for_write(pong);
 		state |= SEND_MESSAGE;
