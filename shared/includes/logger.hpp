@@ -9,11 +9,11 @@
 
 
 enum log_type {
-	DEBUG, /* interpret as a string */
-	CTRL, /* control messages */
-	ERROR, /* strings */
-	BITCOIN, /* general status information (strings) */
-	BITCOIN_MSG, /* actual incoming/outgoing messages as encoded */
+	DEBUG=0x2, /* interpret as a string */
+	CTRL=0x4, /* control messages */
+	ERROR=0x8, /* strings */
+	BITCOIN=0x10, /* general status information (strings) */
+	BITCOIN_MSG=0x12, /* actual incoming/outgoing messages as encoded */
 };
 
 

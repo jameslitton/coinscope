@@ -5,6 +5,7 @@
 #include <fcntl.h>
 
 #include <iostream>
+#include <map>
 
 #include "network.hpp"
 #include "netwrap.hpp"
@@ -17,6 +18,8 @@ namespace output_cxn {
 const uint32_t RECV_HEADER = 0x1;
 const uint32_t RECV_LOG = 0x2;
 
+static map<handlers::accept_handler<handler> *, uint8_t>  g_interests;
+
 
 void handler::handle_accept_error(handlers::accept_handler<handler> *handler, const network_error &e) {
 	cerr << e.what() << endl;
@@ -27,18 +30,36 @@ void handler::handle_accept_error(handlers::accept_handler<handler> *handler, co
 	   and destroys this handler */
 }
 
-void handler::handle_accept(handlers::accept_handler<handler> *, int fd) {
-	new handler(fd); /* let him delete himself */
+void handler::handle_accept(handlers::accept_handler<handler> *h, int fd) {
+	new handler(fd, get_interests(h)); /* let him delete himself */
 }
 
-handler::handler(int fd) 
-	: events(ev::NONE), write_queue(), to_write(0), io() {
+void handler::set_interest(handlers::accept_handler<handler> *h, uint8_t interest) {
+	if (interest) {
+		g_interests[h] = interest;
+	} else {
+		g_interests.erase(h);
+	}
+}
+
+uint8_t handler::get_interests(handlers::accept_handler<handler> *h) {
+	uint8_t rv = 0;
+	auto it = g_interests.find(h);
+	if (it != g_interests.end()) {
+		rv = it->second;
+	}
+	return rv;
+}
+
+handler::handler(int fd, uint8_t _interests) 
+	: interests(_interests), events(ev::NONE), write_queue(), to_write(0), io() {
 	cerr << "Instantiating new input handler\n";
 	io.set(fd);
 	io.set<handler, &handler::io_cb>(this);
 	collector::get().add_consumer(this);
 	io.start(fd, events); 
 }
+
 
 void handler::set_events(int events) { 
 	if (events != this->events) {

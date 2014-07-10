@@ -13,29 +13,27 @@
 
 namespace output_cxn {
 
-class accept_handler {
-public:
-	accept_handler(int fd);
-	void io_cb(ev::io &watcher, int revents);
-	~accept_handler();
-private:
-	ev::io io;
-};
-
 class handler {
 private:
+	uint8_t interests;
 	int events;
 	iobuf write_queue; /* TODO this NEEDS to be smarter */
 	size_t to_write;
 	ev::io io;
 public:
-	handler(int fd);
+	handler(int fd, uint8_t interests);
 	~handler();
 	void io_cb(ev::io &watcher, int revents);
 	void set_events(int events);
 	int get_events() const;
+	bool interested(uint8_t x) const { return x & interests; }
+
+	/* for creation functions */
+	static void set_interest(handlers::accept_handler<handler> *h, uint8_t interest);
+	static uint8_t get_interests(handlers::accept_handler<handler> *h) ;
 	static void handle_accept_error(handlers::accept_handler<handler> *handler, const network_error &e);
 	static void handle_accept(handlers::accept_handler<handler> *handler, int fd);
+
 private:
 	void suicide(); /* get yourself ready for suspension (e.g., stop loop activity) if safe, just delete self */
 	/* could implement move operators, but others are odd */

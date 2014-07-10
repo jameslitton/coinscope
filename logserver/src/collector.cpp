@@ -9,9 +9,11 @@ void collector::append(cvector<uint8_t> data) {
 	
 	shared_ptr<cvector<uint8_t> > w(new cvector<uint8_t>(move(data)));
 	for(auto it = queues.begin(); it != queues.end(); ++it) {
-		it->second.push_front(w);
-		int events = it->first->get_events();
-		it->first->set_events( events | ev::WRITE);
+		if (it->first->interested((*w)[0])) {
+			it->second.push_front(w);
+			int events = it->first->get_events();
+			it->first->set_events( events | ev::WRITE);
+		}
 	}
 }
 

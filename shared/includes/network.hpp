@@ -2,6 +2,8 @@
 #define NETWORK_HPP
 
 #include <endian.h>
+#include <string>
+
 
 inline uint32_t hton(uint32_t x) {
 	return htobe32(x);
@@ -29,9 +31,9 @@ inline uint64_t hton(uint64_t x) {
 
 struct sockaddr_un;
 
-int unix_sock_setup(const char *path, struct sockaddr_un *addr, bool nonblocking);
-int unix_sock_server(const char *path, int listen, bool nonblocking);
-int unix_sock_client(const char *path, bool nonblocking);
+int unix_sock_setup(const std::string &path, struct sockaddr_un *addr, bool nonblocking);
+int unix_sock_server(const std::string &path, int listen, bool nonblocking);
+int unix_sock_client(const std::string &path, bool nonblocking);
 
 
 #endif
