@@ -8,8 +8,8 @@
 #include <vector>
 #include <set>
 #include <random>
-#include <iostream>
 #include <utility>
+#include <iostream>
 
 /* standard unix libraries */
 #include <sys/types.h>
@@ -39,6 +39,8 @@ namespace bc = bitcoin;
 
 int main(int argc, const char *argv[]) {
 
+	cout.sync_with_stdio(false);
+	cerr.sync_with_stdio(false);
 	if (argc == 2) {
 		load_config(argv[1]);
 	} else {
@@ -107,6 +109,11 @@ int main(int argc, const char *argv[]) {
 
 
 	ctrl::accept_handler ctrl_handler(control_sock);
+
+	
+
+	string root((const char*)cfg->lookup("logger.root"));
+	g_log_buffer = new log_buffer(unix_sock_client(root + "clients", true));
 
 	g_log<DEBUG>("Entering event loop");
 	while(true) {

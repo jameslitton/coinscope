@@ -61,7 +61,6 @@ int main(int argc, char * argv[] ) {
 	string client_dir(root + "clients");
 	mkdir(client_dir.c_str(), 0777);
 
-	int input_channel = unix_sock_server(root + "servers", 5, true);
 
 	/* TODO: clean this up, just leaving as POC for now */
 	handlers::accept_handler<output_cxn::handler> debug_handler(unix_sock_server(client_dir + "debug", 5, true));
@@ -79,6 +78,9 @@ int main(int argc, char * argv[] ) {
 	handlers::accept_handler<output_cxn::handler> bitcoin_msg_handler(unix_sock_server(client_dir + "bitcoin_msg", 5, true));
 	output_cxn::handler::set_interest(&bitcoin_msg_handler, (uint8_t)BITCOIN_MSG);
 
+	handlers::accept_handler<output_cxn::handler> bitcoin_foo_handler(unix_sock_server(client_dir + "common", 5, true));
+	output_cxn::handler::set_interest(&bitcoin_msg_handler, (uint8_t)(BITCOIN_MSG | CTRL | BITCOIN));
+
 	handlers::accept_handler<output_cxn::handler> all_handler(unix_sock_server(client_dir + "all", 5, true));
 	output_cxn::handler::set_interest(&all_handler, (uint8_t)~0);
 
@@ -86,12 +88,11 @@ int main(int argc, char * argv[] ) {
 	ev::default_loop loop;
 
 
-	handlers::accept_handler<input_cxn::handler> in_handler(input_channel);
+	handlers::accept_handler<input_cxn::handler> in_handler(unix_sock_server(root + "servers", 5, true));
 
 	while(true) {
 		loop.run();
 	}
-	close(input_channel);
 
 	/* TODO: close and cleanup all output accept handlers. Doesn't matter because we are exiting now */
 

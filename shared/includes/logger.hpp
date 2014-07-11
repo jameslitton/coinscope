@@ -2,10 +2,16 @@
 #define LOGGER_HPP
 
 #include <iostream>
+#include <deque>
+#include <sstream>
+
+#include "ev++.h"
 
 #include "network.hpp"
 #include "command_structures.hpp"
 #include "bitcoin.hpp"
+#include "cvector.hpp"
+#include "iobuf.hpp"
 
 
 enum log_type {
@@ -15,8 +21,6 @@ enum log_type {
 	BITCOIN=0x10, /* general status information (strings) */
 	BITCOIN_MSG=0x12, /* actual incoming/outgoing messages as encoded */
 };
-
-
 
 
 std::ostream & operator<<(std::ostream &o, const struct ctrl::message *m);
@@ -38,21 +42,57 @@ std::string type_to_str(enum log_type type);
 // 	struct packed_message msg
 // };
 
+
+class log_buffer {
+public:
+	iobuf write_queue;
+	size_t to_write;
+	int fd;
+	ev::io io;
+	/* fd should be a writable unix socket */
+	log_buffer(int fd);
+	void append(cvector<uint8_t> &&ptr);
+	void io_cb(ev::io &watcher, int revents);
+	~log_buffer();
+};
+
+extern log_buffer *g_log_buffer; /* initialize with log socket and assign */
+
+
+
 template <typename T>
-void g_log_inner(const T &s) {
-	std::cout << s << std::endl;
+void g_log_inner(cvector<uint8_t> &ptr, const T &s) {
+	std::stringstream oss;
+	oss << s << std::endl;
+	std::copy(std::istream_iterator<char>(oss), std::istream_iterator<char>(), std::back_inserter(ptr));
 }
 
 template <typename T, typename... Targs>
-void g_log_inner(const T &val, Targs... Fargs) {
-	std::cout << val << ' ';
-	g_log_inner(Fargs...);
+void g_log_inner(cvector<uint8_t> &ptr, const T &val, Targs... Fargs) {
+	/* if we are in the inners we are in a generic sequence, in which
+	   case just make it an ascii stream with a newline at the end */
+	std::stringstream oss;
+	oss << val;
+	std::copy(std::istream_iterator<char>(oss), std::istream_iterator<char>(), std::back_inserter(ptr));
+
+	g_log_inner(ptr, Fargs...);
 }
 
 template <int N, typename... Targs>
 void g_log(const std::string &val, Targs... Fargs) {
-	std::cout << '[' << time(NULL) << "] " << type_to_str((log_type)N) << ": ";
-	g_log_inner(val, Fargs...);
+	uint32_t net_time = hton((uint32_t)time(NULL));
+	cvector<uint8_t> ptr(128);
+	ptr.push_back(N);
+	auto back = std::back_inserter(ptr);
+	std::copy((uint8_t*) &net_time, ((uint8_t*)&net_time) + sizeof(net_time),
+	     back);
+	
+	g_log_inner(ptr, val, Fargs...);
+	if (g_log_buffer) {
+		g_log_buffer->append(move(ptr));
+	} else {
+		std::cerr << "<<CONSOLE FALLBACK>> " << (char*) ptr.data() << std::endl;
+	}
 }
 
 template <int N> void g_log(uint32_t id, bool is_sender, const struct bitcoin::packed_message *m);
