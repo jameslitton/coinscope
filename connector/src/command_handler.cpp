@@ -33,9 +33,9 @@ public:
 	bool operator<(const registered_msg &other) const { return id < other.id; }
 	registered_msg(time_t regtime, time_t newid, struct message *messg) 
 		: registration_time(regtime), id(newid), 		
-		  msg((struct bitcoin::packed_message *) malloc(sizeof(struct bitcoin::packed_message) + messg->length), free)
+		  msg((struct bitcoin::packed_message *) malloc(ntoh(messg->length)), free)
 	{
-		memcpy(msg.get(), messg, sizeof(struct bitcoin::packed_message) + messg->length);
+		memcpy(msg.get(), messg, ntoh(messg->length));
 	}
 	registered_msg(registered_msg &&other) 
 		: registration_time(other.registration_time),
