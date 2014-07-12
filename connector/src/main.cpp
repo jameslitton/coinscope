@@ -113,7 +113,7 @@ int main(int argc, const char *argv[]) {
 	
 
 	string root((const char*)cfg->lookup("logger.root"));
-	g_log_buffer = new log_buffer(unix_sock_client(root + "clients", true));
+	g_log_buffer = new log_buffer(unix_sock_client(root + "servers", true));
 
 	g_log<DEBUG>("Entering event loop");
 	while(true) {

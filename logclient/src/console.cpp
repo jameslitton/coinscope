@@ -6,6 +6,7 @@
 /* standard C++ libraries */
 #include <iostream>
 #include <utility>
+#include <iomanip>
 
 /* standard unix libraries */
 #include <sys/types.h>
@@ -18,19 +19,81 @@
 
 #include "netwrap.hpp"
 #include "iobuf.hpp"
+#include "logger.hpp"
+#include "config.hpp"
+
 
 using namespace std;
 
-int main(int/* argc*/, char **/*argv*/) {
-	char path[] = "/tmp/logger/clients";
-	struct sockaddr_un addr;
-	bzero(&addr, sizeof(addr));
-	addr.sun_family = AF_UNIX;
-	strcpy(addr.sun_path, path);
+string time_to_str(const time_t *t)  {
+	// return put_time(localtime(t), "%FT%T%z") !!!NOT IN G++ YET
+	
+	/* uncomment abouve when it is available...*/
+	struct tm *tm = localtime(t);
+	long offset = tm->tm_gmtoff;
+	ostringstream oss;
+	oss << (1900 + tm->tm_year) << '-' << setfill('0') << setw(2) << (tm->tm_mon + 1)
+	    << '-' << setfill('0') << setw(2) << tm->tm_mday
+	    << 'T' << setfill('0') << setw(2) << tm->tm_hour << ':' 
+	    << setfill('0') << setw(2) << tm->tm_min << ':'  
+	    << setfill('0') << setw(2) << tm->tm_sec;
+	if (offset < 0) {
+		oss << '-';
+		offset = -offset;
+	} else if (offset > 0) {
+		oss << '+';
+	} else {
+		oss << 'Z';
+		return oss.str();
+	}
 
-	int client = Socket(AF_UNIX, SOCK_STREAM, 0);
-	Connect(client, (struct sockaddr*)&addr, strlen(addr.sun_path) + 
-	     sizeof(addr.sun_family));
+	int hours = offset / (60*60);
+	offset -= hours * 60*60;
+
+	int minutes = offset / 60;
+	offset -= minutes * 60;
+
+	int seconds = offset;
+
+	oss << setfill('0') << setw(2) << hours << ':'
+	    << setfill('0') << setw(2) << minutes << ':' << setfill('0') << setw(2) << seconds;
+	return oss.str();
+}
+
+
+void print_message(iobuf &input_buf) {
+	cerr << "printing...\n";
+	uint8_t *buf = input_buf.raw_buffer();
+	enum log_type lt(static_cast<log_type>(buf[0]));
+	time_t time = ntoh(*( (uint64_t*)(buf+1)));
+	
+	uint8_t *msg = buf + 8 + 1;
+
+	cout << time_to_str(&time) << ' ' << type_to_str(lt);
+
+	if (lt == BITCOIN_MSG) {
+		cout << " " << ((const struct bitcoin::packed_message*)(msg));
+	} else {
+		cout << " " << ((char*)msg) << endl;
+	}
+}
+
+int main(int argc, char *argv[]) {
+	if (argc == 2) {
+		load_config(argv[1]);
+	} else {
+		load_config("../netmine.cfg");
+	}
+
+	const libconfig::Config *cfg(get_config());
+
+	string root((const char*)cfg->lookup("logger.root"));
+
+	/* TODO: make configurable */
+	mkdir(root.c_str(), 0777);
+	string client_dir(root + "clients/");
+
+	int client = unix_sock_client(client_dir + "all", false);
 
 	bool reading_len(true);
 	uint32_t to_read(sizeof(uint32_t));
@@ -39,9 +102,10 @@ int main(int/* argc*/, char **/*argv*/) {
 
 	while(true) {
 		input_buf.grow(to_read);
-
+		cerr << "Waiting to read " << to_read << endl;
 		ssize_t r = read(client, input_buf.offset_buffer(), to_read);
 		if (r > 0) {
+			cout << "Got " << r << endl;
 			to_read -= r;
 		} else if (r == 0) {
 			cerr << "Disconnected\n";
@@ -54,11 +118,12 @@ int main(int/* argc*/, char **/*argv*/) {
 		if (to_read == 0) {
 			if (reading_len) {
 				uint32_t netlen = *((uint32_t*)input_buf.raw_buffer());
-				to_read = ntohl(netlen);
+				to_read = ntoh(netlen);
 				input_buf.seek(0);
+				reading_len = false;
+				cerr << "Got new length of " << to_read << endl;
 			} else {
-				cout.write((const char*)input_buf.raw_buffer(), input_buf.location());
-				cout << endl;
+				print_message(input_buf);
 				input_buf.seek(0);
 				to_read = 4;
 				reading_len = true;

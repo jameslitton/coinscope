@@ -26,7 +26,7 @@ public:
 		int client;
 		try {
 			client = Accept(watcher.fd, NULL, NULL);
-			fcntl(client, F_SETFD, O_NONBLOCK);		
+			fcntl(client, F_SETFL, O_NONBLOCK);		
 		} catch (network_error &e) {
 			if (e.error_code() != EWOULDBLOCK && e.error_code() != EAGAIN && e.error_code() != EINTR) {
 				T::handle_accept_error(this, e);

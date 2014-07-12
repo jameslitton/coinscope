@@ -1,5 +1,6 @@
 #include "output_cxn.hpp"
 
+#include <cassert>
 #include <cstring>
 #include <unistd.h>
 #include <fcntl.h>
@@ -22,6 +23,7 @@ static map<handlers::accept_handler<handler> *, uint8_t>  g_interests;
 
 
 void handler::handle_accept_error(handlers::accept_handler<handler> *handler, const network_error &e) {
+	cerr << "Giving up accepting\n";
 	cerr << e.what() << endl;
 	handler->io.stop();
 	close(handler->io.fd);
@@ -53,16 +55,17 @@ uint8_t handler::get_interests(handlers::accept_handler<handler> *h) {
 
 handler::handler(int fd, uint8_t _interests) 
 	: interests(_interests), events(ev::NONE), write_queue(), to_write(0), io() {
-	cerr << "Instantiating new input handler\n";
-	io.set(fd);
+	cerr << "Instantiating new output handler on fd " << fd << "\n";
 	io.set<handler, &handler::io_cb>(this);
+	io.set(fd, events);
+	io.start(); 
 	collector::get().add_consumer(this);
-	io.start(fd, events); 
 }
 
 
 void handler::set_events(int events) { 
 	if (events != this->events) {
+		cout << "Setting events to " << events << " for " << io.fd << endl;
 		this->events = events;
 		io.set(events);
 	}
@@ -93,7 +96,14 @@ void handler::io_cb(ev::io &watcher, int revents) {
 				return;
 			} 
 			if (r > 0) {
+				to_write -= r;
 				write_queue.seek(write_queue.location() + r);
+			}
+
+			if (r == 0) {
+				cerr << "Disconnect\n";
+				suicide();
+				return;
 			}
 		}
 
@@ -104,13 +114,16 @@ void handler::io_cb(ev::io &watcher, int revents) {
 			shared_ptr<cvector<uint8_t> > p = collector::get().pop(this);
 			if (p) {
 				/* TODO: fix to not copy */
-				uint32_t len = hton(p->size());
+				uint32_t len = hton((uint32_t)p->size());
+				assert(to_write == 0 && write_queue.location() == 0);
 				write_queue.append(&len);
+				write_queue.seek(sizeof(len));
 				iobuf_spec::append(&write_queue, p->data(), p->size());
+				write_queue.seek(0);
 				io.set(ev::WRITE);
 				to_write = p->size() + sizeof(len);
 			} else {
-				io.set(ev::NONE);
+				io.set(ev::NONE); /* nothing to pop, so just wait */
 			}
 		}
 	}

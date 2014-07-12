@@ -69,10 +69,9 @@ private:
 	handler(const handler &&other);
 	handler & operator=(handler &&other);
 
-	/* appends message, leaves write queue unseeked, but increments to_write. Returns
-	   sizeof u appended if you want to seek */
-	size_t append_for_write(const struct packed_message *m);
-	size_t append_for_write(std::unique_ptr<struct packed_message, void(*)(void*)> m);
+	/* appends message, leaves write queue unseeked, but increments to_write. */
+	void append_for_write(const struct packed_message *m);
+	void append_for_write(std::unique_ptr<struct packed_message, void(*)(void*)> m);
 
 	void do_read(ev::io &watcher, int revents);
 	void do_write(ev::io &watcher, int revents);

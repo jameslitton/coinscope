@@ -15,11 +15,18 @@ log_buffer::log_buffer(int fd) : write_queue(), to_write(), fd(fd), io() {
 }
 void log_buffer::append(cvector<uint8_t> &&ptr) {
 	/* TODO: make no copy */
+	uint32_t netlen = hton((uint32_t)ptr.size());
+	size_t old_loc = write_queue.location();
+	write_queue.seek(write_queue.location() + to_write);
+	iobuf_spec::append(&write_queue, (uint8_t*)&netlen, sizeof(netlen));
+	write_queue.seek(write_queue.location() + sizeof(netlen));
 	iobuf_spec::append(&write_queue, ptr.data(), ptr.size());
+	write_queue.seek(old_loc);
 	if (to_write == 0) {
 		io.set(fd, ev::WRITE);
 	}
-	to_write += ptr.size();
+	to_write += ptr.size() + sizeof(netlen);
+
 }
 void log_buffer::io_cb(ev::io &watcher, int /*revents*/) {
 	ssize_t r(1);
@@ -29,6 +36,8 @@ void log_buffer::io_cb(ev::io &watcher, int /*revents*/) {
 		if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 			/* where to log when the log is dead... */
 			cerr << "Cannot write out log: " << strerror(errno) << endl;
+			/* TODO: re-establish connection? */
+			return;
 		}
 		if (r > 0) {
 			to_write -= r;
@@ -52,7 +61,7 @@ log_buffer *g_log_buffer;
 template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bitcoin::packed_message *m) {
 
 	/* TODO: eliminate copy */
-	uint32_t net_time = hton((uint32_t)time(NULL));
+	uint64_t net_time = hton((uint64_t)time(NULL));
 	uint32_t net_id = hton(id);
 	cvector<uint8_t> ptr(1 + sizeof(net_time) + sizeof(net_id) + 1 + sizeof(*m) + m->length);
 	ptr.push_back(BITCOIN_MSG);
@@ -73,7 +82,7 @@ ostream & operator<<(ostream &o, const struct ctrl::message *m) {
 	o << "MSG { length => " << ntoh(m->length);
 	o << ", type => " << m->message_type;
 	o << ", payload => ommitted"; //o.write((char*)m, m->length + sizeof(*m));
-	o << "}\n";
+	o << "}";
 	return o;
 }
 
@@ -88,7 +97,7 @@ ostream & operator<<(ostream &o, const struct bitcoin::packed_message *m) {
 	o << ", command => " << m->command;
 	o << ", checksum => " << hex << m->command;		
 	o << ", payload => ommitted"; //o.write((char*)m, m->length + sizeof(*m));
-	o << "}\n";
+	o << "}";
 	return o;
 }
 

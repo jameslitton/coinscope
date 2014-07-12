@@ -14,7 +14,7 @@ int unix_sock_setup(const std::string &path, struct sockaddr_un *addr, bool nonb
 	strcpy(addr->sun_path, path.c_str());
 	int sock = Socket(AF_UNIX, SOCK_STREAM, 0);
 	if (nonblocking) {
-		fcntl(sock, F_SETFD, O_NONBLOCK);
+		fcntl(sock, F_SETFL, O_NONBLOCK);
 	}
 	return sock;
 }

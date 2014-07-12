@@ -27,23 +27,6 @@
 
 using namespace std;
 
-int setup_usock(const char *path) {
-	unlink(path);
-
-	struct sockaddr_un addr;
-	bzero(&addr, sizeof(addr));
-	addr.sun_family = AF_UNIX;
-	strcpy(addr.sun_path, path);
-
-	int sock = Socket(AF_UNIX, SOCK_STREAM, 0);
-	fcntl(sock, F_SETFD, O_NONBLOCK);
-	Bind(sock, (struct sockaddr*)&addr, strlen(addr.sun_path) + 
-	     sizeof(addr.sun_family));
-	Listen(sock, 5);
-	return sock;
-}
-
-
 int main(int argc, char * argv[] ) {
 
 	if (argc == 2) {
@@ -58,7 +41,7 @@ int main(int argc, char * argv[] ) {
 
 	/* TODO: make configurable */
 	mkdir(root.c_str(), 0777);
-	string client_dir(root + "clients");
+	string client_dir(root + "clients/");
 	mkdir(client_dir.c_str(), 0777);
 
 
@@ -78,8 +61,8 @@ int main(int argc, char * argv[] ) {
 	handlers::accept_handler<output_cxn::handler> bitcoin_msg_handler(unix_sock_server(client_dir + "bitcoin_msg", 5, true));
 	output_cxn::handler::set_interest(&bitcoin_msg_handler, (uint8_t)BITCOIN_MSG);
 
-	handlers::accept_handler<output_cxn::handler> bitcoin_foo_handler(unix_sock_server(client_dir + "common", 5, true));
-	output_cxn::handler::set_interest(&bitcoin_msg_handler, (uint8_t)(BITCOIN_MSG | CTRL | BITCOIN));
+	handlers::accept_handler<output_cxn::handler> bitcoin_foo_handler(unix_sock_server(client_dir + "bitcoinx", 5, true));
+	output_cxn::handler::set_interest(&bitcoin_msg_handler, (uint8_t)(BITCOIN_MSG | BITCOIN));
 
 	handlers::accept_handler<output_cxn::handler> all_handler(unix_sock_server(client_dir + "all", 5, true));
 	output_cxn::handler::set_interest(&all_handler, (uint8_t)~0);

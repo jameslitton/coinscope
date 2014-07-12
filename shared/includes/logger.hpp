@@ -34,8 +34,15 @@ std::ostream & operator<<(std::ostream &o, const struct sockaddr &addr);
 std::string type_to_str(enum log_type type);
 
 
+/* all logs preceded by a 32 bit network order length prefix */
+
+/* general log format: */
+// uint8_t type
+// uint32_t timestamp /* network byte order */
+// The rest... (stringstreamed i.e., operator<<(ostream, rest) done)
+
 /* Log format for BITCOIN_MSG types */
-// struct log_format {
+//    uint8_t type
 //		uint64_t timestamp; /* network byte order */
 // 	uint32_t id; /* network byte order */
 //		uint8_t is_sender;    
@@ -64,7 +71,8 @@ template <typename T>
 void g_log_inner(cvector<uint8_t> &ptr, const T &s) {
 	std::stringstream oss;
 	oss << s << std::endl;
-	std::copy(std::istream_iterator<char>(oss), std::istream_iterator<char>(), std::back_inserter(ptr));
+	const std::string str(oss.str());
+	std::copy((uint8_t*)str.c_str(), (uint8_t*)str.c_str() + str.size()+1, std::back_inserter(ptr));
 }
 
 template <typename T, typename... Targs>
@@ -72,15 +80,16 @@ void g_log_inner(cvector<uint8_t> &ptr, const T &val, Targs... Fargs) {
 	/* if we are in the inners we are in a generic sequence, in which
 	   case just make it an ascii stream with a newline at the end */
 	std::stringstream oss;
-	oss << val;
-	std::copy(std::istream_iterator<char>(oss), std::istream_iterator<char>(), std::back_inserter(ptr));
+	oss << val << ' ';
+	const std::string str(oss.str());
+	std::copy((uint8_t*)str.c_str(), (uint8_t*)str.c_str() + str.size()+1, std::back_inserter(ptr));
 
 	g_log_inner(ptr, Fargs...);
 }
 
 template <int N, typename... Targs>
 void g_log(const std::string &val, Targs... Fargs) {
-	uint32_t net_time = hton((uint32_t)time(NULL));
+	uint64_t net_time = hton((uint64_t)time(NULL));
 	cvector<uint8_t> ptr(128);
 	ptr.push_back(N);
 	auto back = std::back_inserter(ptr);
@@ -91,7 +100,7 @@ void g_log(const std::string &val, Targs... Fargs) {
 	if (g_log_buffer) {
 		g_log_buffer->append(move(ptr));
 	} else {
-		std::cerr << "<<CONSOLE FALLBACK>> " << (char*) ptr.data() << std::endl;
+		std::cerr << "<<CONSOLE FALLBACK>> " << ((char*) ptr.data() + 1) << std::endl;
 	}
 }
 

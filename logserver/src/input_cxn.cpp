@@ -43,6 +43,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 		ssize_t r(1);
 		while(r > 0) { /* do all reads we can in this event handler */
 			do {
+				read_queue.grow(read_queue.location() + to_read);
 				r = read(watcher.fd, read_queue.offset_buffer(), to_read);
 				if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 					cerr << "Got unexpected error on handler. " << strerror(errno);

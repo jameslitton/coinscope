@@ -126,14 +126,16 @@ void handler::suicide() {
 	delete this;
 }
 
-size_t handler::append_for_write(const struct packed_message *m) {
+void handler::append_for_write(const struct packed_message *m) {
 	g_log<BITCOIN_MSG>(id, true, m);
+	size_t old_loc = write_queue.location();
+	write_queue.seek(write_queue.location() + to_write);
 	write_queue.append(m);
 	to_write += m->length + sizeof(*m);
-	return m->length + sizeof(*m);
+	write_queue.seek(old_loc);
 }
 
-size_t handler::append_for_write(unique_ptr<struct packed_message, void(*)(void*)> m) {
+void handler::append_for_write(unique_ptr<struct packed_message, void(*)(void*)> m) {
 	return append_for_write(m.get());
 }
 
@@ -214,7 +216,8 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 
 				size_t start = write_queue.location();
 
-				write_queue.seek(start + append_for_write(move(vmsg)));
+				append_for_write(move(vmsg));
+				write_queue.seek(start + to_write);;
 				append_for_write(get_message("verack"));
 				write_queue.seek(start);
 				state = (state & SEND_MASK) | SEND_VERSION_REPLY | RECV_HEADER;
@@ -231,10 +234,8 @@ void handler::do_write(ev::io &watcher, int /*revents*/) {
 
 	ssize_t r(1);
 	while (to_write && r > 0) { 
-		g_log<DEBUG>("Calling write for", to_write, "bytes");
 		assert(write_queue.location() + to_write <= write_queue.end());
 		r = write(watcher.fd, write_queue.offset_buffer(), to_write);
-		g_log<DEBUG>("Got", r);
 
 		if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 			/* most probably a disconnect of some sort, log error and queue object for deletion */
@@ -277,7 +278,6 @@ void handler::io_cb(ev::io &watcher, int revents) {
 		do_write(watcher, revents);
 		
 	}
-
 
 	int events = 0;
 	if (state & SEND_MASK) {
