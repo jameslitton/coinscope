@@ -136,7 +136,7 @@ void handler::append_for_write(const struct packed_message *m) {
 	write_queue.seek(old_loc);
 }
 
-void handler::append_for_write(unique_ptr<struct packed_message, void(*)(void*)> m) {
+void handler::append_for_write(unique_ptr<struct packed_message> m) {
 	return append_for_write(m.get());
 }
 
@@ -213,7 +213,7 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 				to_read = sizeof(struct packed_message);
 					
 				struct combined_version vers(get_version(USER_AGENT, remote_addr, remote_port, local_addr, local_port));
-				unique_ptr<struct packed_message, void(*)(void*)> vmsg(get_message("version", vers.as_buffer(), vers.size));
+				unique_ptr<struct packed_message> vmsg(get_message("version", vers.as_buffer(), vers.size));
 
 				size_t start = write_queue.location();
 

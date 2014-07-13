@@ -64,7 +64,7 @@ public:
 	uint16_t get_remote_port() const { return remote_port; }
 	/* appends message, leaves write queue unseeked, but increments to_write. */
 	void append_for_write(const struct packed_message *m);
-	void append_for_write(std::unique_ptr<struct packed_message, void(*)(void*)> m);
+	void append_for_write(std::unique_ptr<struct packed_message> m);
 
 private:
 	void suicide(); /* get yourself ready for suspension (e.g., stop loop activity) if safe, just delete self */

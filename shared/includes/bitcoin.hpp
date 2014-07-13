@@ -79,7 +79,7 @@ struct combined_version { /* the stupid hurts so bad */
 	   format to send combined and no need to free suffix */
 public:
 	size_t size;
-	std::unique_ptr<struct packed_version_prefix, void(*)(void*)> prefix;
+	std::unique_ptr<struct packed_version_prefix> prefix;
 	struct packed_version_suffix *suffix;
 
 
@@ -124,14 +124,14 @@ public:
 	combined_version(size_t agent_length) : 
 		size(sizeof(struct packed_version_prefix) + 
 		     agent_length + sizeof(struct packed_version_suffix)),
-		prefix((struct packed_version_prefix*) malloc(size), free),
+		prefix((struct packed_version_prefix*) ::operator new(size)),
 		suffix((struct packed_version_suffix *) (((char *) prefix.get()) + 
 		                                         sizeof(struct packed_version_prefix) + agent_length))
 	{
 	}
 	combined_version(combined_version &&other) 
 		: size(other.size),
-		  prefix(NULL,free),
+		  prefix(),
 		  suffix(other.suffix)
 	{
 		prefix.swap(other.prefix);
@@ -159,13 +159,13 @@ struct combined_version get_version(const std::string &user_agent,
                                     struct in_addr from, uint16_t from_port,
                                     struct in_addr recv, uint16_t recv_port);
 
-std::unique_ptr<struct packed_message, void(*)(void*)> get_message(const char * command, const uint8_t *payload, size_t len);
-inline std::unique_ptr<struct packed_message, void(*)(void*)> get_message(const char * command, 
+std::unique_ptr<struct packed_message> get_message(const char * command, const uint8_t *payload, size_t len);
+inline std::unique_ptr<struct packed_message> get_message(const char * command, 
                                                                    std::vector<uint8_t> &payload) {
 	return get_message(command, payload.data(), payload.size());
 }
 
-inline std::unique_ptr<struct packed_message, void(*)(void*)> get_message(const char *command) { 
+inline std::unique_ptr<struct packed_message> get_message(const char *command) { 
 	return get_message(command, NULL, 0); 
 }
 

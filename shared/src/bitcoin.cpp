@@ -141,11 +141,11 @@ uint32_t compute_checksum(const uint8_t *payload, size_t len) {
 	return rv;
 }
 
-unique_ptr<struct packed_message, void(*)(void*)> get_message(const char *command, const uint8_t *payload, size_t len) {
+unique_ptr<struct packed_message> get_message(const char *command, const uint8_t *payload, size_t len) {
 	static const libconfig::Config *cfg(get_config());
 
 	/* TODO: special version for zero payload for faster allocation */
-	unique_ptr<struct packed_message, void(*)(void*)> rv((struct packed_message *) malloc(sizeof(struct packed_message) + len), free);
+	unique_ptr<struct packed_message> rv((struct packed_message *) ::operator new(sizeof(struct packed_message) + len));
 	rv->magic = (uint64_t)cfg->lookup("connector.bitcoin.magic");
 	bzero(rv->command, sizeof(rv->command));
 	strncpy(rv->command, command, sizeof(rv->command));
