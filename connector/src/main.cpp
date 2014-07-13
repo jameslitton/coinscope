@@ -48,8 +48,12 @@ int main(int argc, const char *argv[]) {
 	}
 
 	const libconfig::Config *cfg(get_config());
+	signal(SIGPIPE, SIG_IGN);
 
-	g_log<DEBUG>("Starting up");
+	cerr << "Starting up and transferring to log server" << endl;
+
+	string root((const char*)cfg->lookup("logger.root"));
+	g_log_buffer = new log_buffer(unix_sock_client(root + "servers", true));
 
 	const char *control_filename = cfg->lookup("connector.control_path");
 	unlink(control_filename);
@@ -112,10 +116,8 @@ int main(int argc, const char *argv[]) {
 
 	
 
-	string root((const char*)cfg->lookup("logger.root"));
-	g_log_buffer = new log_buffer(unix_sock_client(root + "servers", true));
-
 	g_log<DEBUG>("Entering event loop");
+	
 	while(true) {
 		/* add timer to clean destruction queues */
 		/* add timer to attempt recreation of lost control channel */

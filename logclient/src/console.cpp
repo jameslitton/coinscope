@@ -62,7 +62,6 @@ string time_to_str(const time_t *t)  {
 
 
 void print_message(iobuf &input_buf) {
-	cerr << "printing...\n";
 	uint8_t *buf = input_buf.raw_buffer();
 	enum log_type lt(static_cast<log_type>(buf[0]));
 	time_t time = ntoh(*( (uint64_t*)(buf+1)));
@@ -102,10 +101,8 @@ int main(int argc, char *argv[]) {
 
 	while(true) {
 		input_buf.grow(to_read);
-		cerr << "Waiting to read " << to_read << endl;
 		ssize_t r = read(client, input_buf.offset_buffer(), to_read);
 		if (r > 0) {
-			cout << "Got " << r << endl;
 			to_read -= r;
 		} else if (r == 0) {
 			cerr << "Disconnected\n";
@@ -121,7 +118,6 @@ int main(int argc, char *argv[]) {
 				to_read = ntoh(netlen);
 				input_buf.seek(0);
 				reading_len = false;
-				cerr << "Got new length of " << to_read << endl;
 			} else {
 				print_message(input_buf);
 				input_buf.seek(0);

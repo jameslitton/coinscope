@@ -65,9 +65,9 @@ handler::handler(int fd, uint8_t _interests)
 
 void handler::set_events(int events) { 
 	if (events != this->events) {
-		cout << "Setting events to " << events << " for " << io.fd << endl;
 		this->events = events;
 		io.set(events);
+		io.start();
 	}
 }
 
@@ -120,10 +120,11 @@ void handler::io_cb(ev::io &watcher, int revents) {
 				write_queue.seek(sizeof(len));
 				iobuf_spec::append(&write_queue, p->data(), p->size());
 				write_queue.seek(0);
-				io.set(ev::WRITE);
 				to_write = p->size() + sizeof(len);
 			} else {
-				io.set(ev::NONE); /* nothing to pop, so just wait */
+				this->events = ev::NONE;
+				io.set(ev::NONE);
+				io.stop();/* nothing to pop, so just wait */
 			}
 		}
 	}

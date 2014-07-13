@@ -70,7 +70,7 @@ extern log_buffer *g_log_buffer; /* initialize with log socket and assign */
 template <typename T>
 void g_log_inner(cvector<uint8_t> &ptr, const T &s) {
 	std::stringstream oss;
-	oss << s << std::endl;
+	oss << s;
 	const std::string str(oss.str());
 	std::copy((uint8_t*)str.c_str(), (uint8_t*)str.c_str() + str.size()+1, std::back_inserter(ptr));
 }

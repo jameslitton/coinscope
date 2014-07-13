@@ -36,6 +36,7 @@ int main(int argc, char * argv[] ) {
 	}
 
 	const libconfig::Config *cfg(get_config());
+	signal(SIGPIPE, SIG_IGN);
 
 	string root((const char*)cfg->lookup("logger.root"));
 

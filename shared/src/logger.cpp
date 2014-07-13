@@ -36,6 +36,10 @@ void log_buffer::io_cb(ev::io &watcher, int /*revents*/) {
 		if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 			/* where to log when the log is dead... */
 			cerr << "Cannot write out log: " << strerror(errno) << endl;
+			io.stop();
+			close(io.fd);
+			g_log_buffer = NULL;
+			delete this;
 			/* TODO: re-establish connection? */
 			return;
 		}
