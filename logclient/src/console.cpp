@@ -71,7 +71,7 @@ void print_message(iobuf &input_buf) {
 	cout << time_to_str(&time) << ' ' << type_to_str(lt);
 
 	if (lt == BITCOIN_MSG) {
-		cout << " " << ((const struct bitcoin::packed_message*)(msg));
+		cout << " " << ((const struct bitcoin::packed_message*)(msg)) << endl;
 	} else {
 		cout << " " << ((char*)msg) << endl;
 	}
@@ -103,6 +103,7 @@ int main(int argc, char *argv[]) {
 		input_buf.grow(to_read);
 		ssize_t r = read(client, input_buf.offset_buffer(), to_read);
 		if (r > 0) {
+			input_buf.seek(input_buf.location() + r);
 			to_read -= r;
 		} else if (r == 0) {
 			cerr << "Disconnected\n";

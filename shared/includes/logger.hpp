@@ -72,7 +72,7 @@ void g_log_inner(cvector<uint8_t> &ptr, const T &s) {
 	std::stringstream oss;
 	oss << s;
 	const std::string str(oss.str());
-	std::copy((uint8_t*)str.c_str(), (uint8_t*)str.c_str() + str.size()+1, std::back_inserter(ptr));
+	std::copy((uint8_t*)str.c_str(), (uint8_t*)str.c_str() + str.size(), std::back_inserter(ptr));
 }
 
 template <typename T, typename... Targs>
@@ -82,7 +82,7 @@ void g_log_inner(cvector<uint8_t> &ptr, const T &val, Targs... Fargs) {
 	std::stringstream oss;
 	oss << val << ' ';
 	const std::string str(oss.str());
-	std::copy((uint8_t*)str.c_str(), (uint8_t*)str.c_str() + str.size()+1, std::back_inserter(ptr));
+	std::copy((uint8_t*)str.c_str(), (uint8_t*)str.c_str() + str.size(), std::back_inserter(ptr));
 
 	g_log_inner(ptr, Fargs...);
 }
