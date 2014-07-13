@@ -14,7 +14,7 @@ namespace ctrl {
 enum commands {
 	COMMAND_GET_CXN,
 	COMMAND_DISCONNECT,
-	COMMAND_GETADDR 
+	COMMAND_SEND_MSG
 };
 
 const uint32_t BROADCAST_TARGET(0xFFFFFFFF);
@@ -47,13 +47,13 @@ struct connect_payload {
 
 struct command_msg {
 	uint8_t command;
-	uint32_t message_id;
+	uint32_t message_id; /* network byte order */
 	/* still have to decide the format of target, as it depends on some
 	   data structure changes, but target will correspond to indices in
 	   the logs and values returned by COMMAND_GET_CXN */
 
-	uint32_t target_cnt;
-	uint32_t targets[0]; 
+	uint32_t target_cnt; /* network byte order */
+	uint32_t targets[0]; /* network byte order */
 };
 
 /*

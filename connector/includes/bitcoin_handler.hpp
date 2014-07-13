@@ -5,6 +5,7 @@
 
 #include <unordered_set>
 #include <string>
+#include <map>
 
 #include <netinet/in.h>
 
@@ -61,6 +62,10 @@ public:
 	void io_cb(ev::io &watcher, int revents);
 	struct in_addr get_remote_addr() const { return remote_addr; }
 	uint16_t get_remote_port() const { return remote_port; }
+	/* appends message, leaves write queue unseeked, but increments to_write. */
+	void append_for_write(const struct packed_message *m);
+	void append_for_write(std::unique_ptr<struct packed_message, void(*)(void*)> m);
+
 private:
 	void suicide(); /* get yourself ready for suspension (e.g., stop loop activity) if safe, just delete self */
 	/* could implement move operators, but others are odd */
@@ -69,9 +74,6 @@ private:
 	handler(const handler &&other);
 	handler & operator=(handler &&other);
 
-	/* appends message, leaves write queue unseeked, but increments to_write. */
-	void append_for_write(const struct packed_message *m);
-	void append_for_write(std::unique_ptr<struct packed_message, void(*)(void*)> m);
 
 	void do_read(ev::io &watcher, int revents);
 	void do_write(ev::io &watcher, int revents);
@@ -91,8 +93,10 @@ struct handler_equal {
 
 
 typedef std::unordered_set<handler*, handler_hashfunc, handler_equal> handler_set;
+typedef std::map<uint32_t, handler*> handler_map;
+
 /* since I have to work with libev, hard to get away from raw pointers */
-extern handler_set g_active_handlers;
+extern handler_map g_active_handlers;
 
 
 class accept_handler {

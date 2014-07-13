@@ -16,7 +16,7 @@ using namespace std;
 
 namespace bitcoin {
 
-handler_set g_active_handlers;
+handler_map g_active_handlers;
 
 uint32_t handler::id_pool = 0;
 
@@ -55,7 +55,8 @@ void accept_handler::io_cb(ev::io &watcher, int /*revents*/) {
 
 	/* TODO: if can be converted to smarter pointers sensibly, consider, but
 	   since libev doesn't use them makes it hard */
-	g_active_handlers.emplace(new handler(client, RECV_VERSION_REPLY_HDR, addr.sin_addr, addr.sin_port, local_addr, local_port));
+	handler *h(new handler(client, RECV_VERSION_REPLY_HDR, addr.sin_addr, addr.sin_port, local_addr, local_port));
+	g_active_handlers.insert(make_pair(h->get_id(), h));
 }
 
 handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_t a_remote_port, in_addr a_local_addr, uint16_t a_local_port) 
@@ -122,7 +123,7 @@ void handler::suicide() {
 	io.stop();
 	close(io.fd);
 	io.fd = -1;
-	g_active_handlers.erase(this);
+	g_active_handlers.erase(id);
 	delete this;
 }
 

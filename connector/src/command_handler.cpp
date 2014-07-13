@@ -1,7 +1,7 @@
 #include <iostream>
 #include <iterator>
 #include <sstream>
-#include <set>
+#include <map>
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -27,30 +27,23 @@ uint32_t handler::id_pool = 0;
 class registered_msg {
 public:
 	time_t registration_time;
-	uint32_t id;
-	unique_ptr<struct bitcoin::packed_message, void(*)(void*)> msg;
+	shared_ptr<struct bitcoin::packed_message> msg;
 
-	bool operator<(const registered_msg &other) const { return id < other.id; }
-	registered_msg(time_t regtime, time_t newid, struct message *messg) 
-		: registration_time(regtime), id(newid), 		
-		  msg((struct bitcoin::packed_message *) malloc(ntoh(messg->length)), free)
+	registered_msg(time_t regtime, struct message *messg) 
+		: registration_time(regtime), 
+		  msg((struct bitcoin::packed_message *) ::operator new(ntoh(messg->length)))
 	{
 		memcpy(msg.get(), messg, ntoh(messg->length));
 	}
 	registered_msg(registered_msg &&other) 
 		: registration_time(other.registration_time),
-		  id(other.id), msg(NULL,free)
-	{
-		msg.swap(other.msg);
-	}
-private:
-	registered_msg & operator=(registered_msg other);
-	registered_msg(const registered_msg &);
-	registered_msg & operator=(registered_msg &&other);
+		  msg(move(other.msg)) {}
+
+	shared_ptr<struct bitcoin::packed_message> get_buffer() { return msg; }
 
 };
 
-set<registered_msg> g_messages;
+map<uint32_t, registered_msg> g_messages;
 
 
 void handler::handle_message_recv(const struct command_msg *msg) { 
@@ -61,13 +54,13 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 		g_log<CTRL>("All connections requested", regid);
 		/* format is 32 bit id (network byte order), struct version_packed_net_addr */
 		uint8_t buffer[sizeof(uint32_t) + sizeof(struct bc::version_packed_net_addr)];
-		for(auto it = bc::g_active_handlers.cbegin(); it != bc::g_active_handlers.cend(); ++it) {
-			uint32_t nid = hton((*it)->get_id());
+		for(bc::handler_map::const_iterator it = bc::g_active_handlers.cbegin(); it != bc::g_active_handlers.cend(); ++it) {
+			uint32_t nid = hton(it->first);
 			memcpy(buffer, &nid, sizeof(nid));
 			struct bc::version_packed_net_addr remote;
-			remote.addr.ipv4.as.in_addr = (*it)->get_remote_addr();
+			remote.addr.ipv4.as.in_addr = it->second->get_remote_addr();
 			remote.addr.ipv4.padding[10] = remote.addr.ipv4.padding[11] = 0xFF;
-			remote.port = (*it)->get_remote_port();
+			remote.port = it->second->get_remote_port();
 			memcpy(buffer+sizeof(nid), &remote, sizeof(remote));
 		}
 		out.reserve(sizeof(buffer));
@@ -75,6 +68,24 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 		iobuf_spec::append(&write_queue, out.data(), out.size());
 		state |= SEND_MESSAGE;
 		to_write += out.size();
+	} else if (msg->command == COMMAND_SEND_MSG) {
+		uint32_t message_id = ntoh(msg->message_id);
+		auto it = g_messages.find(message_id);
+		if (it == g_messages.end()) {
+			g_log<ERROR>("invalid message id", message_id);
+		} else {
+			shared_ptr<struct bc::packed_message> packed(it->second.get_buffer());
+			uint32_t end = ntoh(msg->target_cnt);
+			for(uint32_t i = 0; i < end; ++i) {
+				uint32_t target = ntoh(msg->targets[i]);
+				bc::handler_map::iterator hit = bc::g_active_handlers.find(target);
+				if (hit != bc::g_active_handlers.end()) {
+					hit->second->append_for_write(packed.get());
+				}
+			}
+		}
+		
+		
 	}
 
 }
@@ -127,15 +138,23 @@ void handler::receive_payload() {
 	case BITCOIN_PACKED_MESSAGE:
 		/* register message and send back its id */
 		{
-			auto pair = g_messages.insert(registered_msg(time(NULL), nonce_gen32(), msg));
+			uint32_t id = nonce_gen32();
+			auto pair = g_messages.insert(make_pair(id, registered_msg(time(NULL), msg)));
 			g_log<CTRL>("Registering message ", regid, msg);
+			uint32_t netorder;
 			if (pair.second) {
 				write_queue.grow(write_queue.location() + 4);
-				uint32_t netorder = hton(pair.first->id);
-				write_queue.append(&netorder);
-				to_write += 4;
-				g_log<CTRL>("message registered", regid, pair.first->id);
+				netorder = hton(id);
+				g_log<CTRL>("message registered", regid, id);
+			} else {
+				netorder = hton((uint32_t)0);
+				g_log<ERROR>("Duplicate id generated, surprising");
 			}
+			size_t loc = write_queue.location();
+			write_queue.seek(write_queue.location() + to_write);
+			write_queue.append(&netorder);
+			write_queue.seek(loc);
+			to_write += 4;
 		}
 		break;
 	case COMMAND:
@@ -164,7 +183,8 @@ void handler::receive_payload() {
 				g_log<ERROR>(e.what(), "(command_handler)");
 			}
 			if (fd >= 0) {
-				bc::g_active_handlers.emplace(new bc::handler(fd, bc::SEND_VERSION_INIT, addr.sin_addr, addr.sin_port, payload->local.addr.ipv4.as.in_addr, payload->local.port));
+				bc::handler *h = new bc::handler(fd, bc::SEND_VERSION_INIT, addr.sin_addr, addr.sin_port, payload->local.addr.ipv4.as.in_addr, payload->local.port);
+				bc::g_active_handlers.insert(make_pair(h->get_id(), h));
 			}
 		}
 		break;
@@ -301,7 +321,7 @@ void accept_handler::io_cb(ev::io &watcher, int /* revents */) {
 		return;
 	}
 
-	g_active_handlers.emplace(new handler(client));
+	g_active_handlers.insert(new handler(client));
 }
 
 };
