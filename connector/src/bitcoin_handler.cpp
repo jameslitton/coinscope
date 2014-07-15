@@ -130,6 +130,7 @@ void handler::suicide() {
 void handler::append_for_write(const struct packed_message *m) {
 	g_log<BITCOIN_MSG>(id, true, m);
 	size_t old_loc = write_queue.location();
+	write_queue.grow(write_queue.location() + to_write + m->length + sizeof(*m));
 	write_queue.seek(write_queue.location() + to_write);
 	write_queue.append(m);
 	to_write += m->length + sizeof(*m);
