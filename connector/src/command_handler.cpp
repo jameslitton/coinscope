@@ -33,7 +33,7 @@ public:
 		: registration_time(regtime), 
 		  msg((struct bitcoin::packed_message *) ::operator new(ntoh(messg->length)))
 	{
-		memcpy(msg.get(), messg, ntoh(messg->length));
+		memcpy(msg.get(), &messg->payload, ntoh(messg->length));
 	}
 	registered_msg(registered_msg &&other) 
 		: registration_time(other.registration_time),
@@ -140,7 +140,7 @@ void handler::receive_payload() {
 		{
 			uint32_t id = nonce_gen32();
 			auto pair = g_messages.insert(make_pair(id, registered_msg(time(NULL), msg)));
-			g_log<CTRL>("Registering message ", regid, msg);
+			g_log<CTRL>("Registering message ", regid, (struct bitcoin::packed_message *) msg->payload);
 			uint32_t netorder;
 			if (pair.second) {
 				write_queue.grow(write_queue.location() + 4);
