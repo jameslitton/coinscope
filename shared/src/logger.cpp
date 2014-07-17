@@ -76,7 +76,7 @@ template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bi
 	     back);
 	copy((uint8_t*) &is_sender, ((uint8_t*)&is_sender) + sizeof(is_sender), 
 	     back);
-	copy((uint8_t*) &m, ((uint8_t*)&m) + sizeof(*m) + m->length, 
+	copy((uint8_t*) m, ((uint8_t*)m) + sizeof(*m) + m->length, 
 	     back);
 	g_log_buffer->append(move(ptr));
 }
