@@ -71,6 +71,8 @@ void print_message(iobuf &input_buf) {
 	cout << time_to_str(&time) << ' ' << type_to_str(lt);
 
 	if (lt == BITCOIN_MSG) {
+		cout << " ID:" << ntoh(*((uint32_t*) msg)) << " IS_SENDER:" << *((bool*) (msg+4));
+		msg += 5;
 		cout << " " << ((const struct bitcoin::packed_message*)(msg)) << endl;
 	} else {
 		cout << " " << ((char*)msg) << endl;
