@@ -99,7 +99,7 @@ ostream & operator<<(ostream &o, const struct bitcoin::packed_message *m) {
 	o << "MSG { length => " << m->length;
 	o << ", magic => " << hex << m->magic;
 	o << ", command => " << m->command;
-	o << ", checksum => " << hex << m->command;		
+	o << ", checksum => " << hex << m->checksum;		
 	o << ", payload => ommitted"; //o.write((char*)m, m->length + sizeof(*m));
 	o << "}";
 	return o;
