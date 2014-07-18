@@ -6,12 +6,14 @@
 #include <unordered_set>
 #include <string>
 #include <map>
+#include <memory>
 
 #include <netinet/in.h>
 
 #include <ev++.h>
 
-#include "iobuf.hpp"
+#include "read_buffer.hpp"
+#include "write_buffer.hpp"
 
 namespace bitcoin {
 
@@ -34,11 +36,9 @@ const std::string USER_AGENT("/Satoshi:0.9.2/");
 
 class handler {
 private:
-	iobuf read_queue; /* application needs to read and act on this data */
-	size_t to_read;
+	read_buffer read_queue; /* application needs to read and act on this data */
 
-	iobuf write_queue; /* application wants this written out across network */
-	size_t to_write;
+	write_buffer write_queue; /* application wants this written out across network */
 
 	in_addr remote_addr;
 	uint16_t remote_port;
