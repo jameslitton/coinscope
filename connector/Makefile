@@ -6,5 +6,8 @@ LDLIBS=-lev -lcrypto -lconfig++
 
 all: main 
 
+clean_extra: 
+	rm -rf main
+
 main: main.cpp bitcoin_handler.o command_handler.o $(SHARED)
 
