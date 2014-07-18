@@ -49,7 +49,6 @@ map<uint32_t, registered_msg> g_messages;
 void handler::handle_message_recv(const struct command_msg *msg) { 
 	vector<uint8_t> out;
 
-
 	if (msg->command == COMMAND_GET_CXN) {
 		g_log<CTRL>("All connections requested", regid);
 		/* format is 32 bit id (network byte order), struct version_packed_net_addr */
@@ -65,9 +64,13 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 		}
 		out.reserve(sizeof(buffer));
 		copy(buffer, buffer + sizeof(buffer), back_inserter(out));
+		size_t old_loc = write_queue.location();
+		write_queue.grow(old_loc + to_write + out.size());
+		write_queue.seek(old_loc + to_write);
 		iobuf_spec::append(&write_queue, out.data(), out.size());
-		state |= SEND_MESSAGE;
+		write_queue.seek(old_loc);
 		to_write += out.size();
+		state |= SEND_MESSAGE;
 	} else if (msg->command == COMMAND_SEND_MSG) {
 		uint32_t message_id = ntoh(msg->message_id);
 		auto it = g_messages.find(message_id);
@@ -84,10 +87,7 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 				}
 			}
 		}
-		
-		
 	}
-
 }
 
 void handler::receive_header() {
@@ -151,6 +151,7 @@ void handler::receive_payload() {
 				g_log<ERROR>("Duplicate id generated, surprising");
 			}
 			size_t loc = write_queue.location();
+			write_queue.grow(write_queue.location() + to_write);
 			write_queue.seek(write_queue.location() + to_write);
 			write_queue.append(&netorder);
 			write_queue.seek(loc);
@@ -252,6 +253,7 @@ void handler::do_write(ev::io &watcher, int /* revents */) {
 		}
 		if (r > 0) {
 			write_queue.seek(write_queue.location() + r);
+			to_write -= r;
 		}
 	}
 
