@@ -213,7 +213,10 @@ public:
 	void realloc(size_type new_elt_cnt) {
 		size_type size = round_to_page(new_elt_cnt * sizeof(POD_T));
 
-		
+		if (size == allocated_) {
+			return;
+		}
+
 		if (*refcount_ == 1) { /* yay, fast realloc */
 
 			POD_T *newbuf = (POD_T*) mremap(buffer_, allocated_, size, MREMAP_MAYMOVE);
