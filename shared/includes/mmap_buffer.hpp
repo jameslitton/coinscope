@@ -134,6 +134,8 @@ public:
 	};
 
 
+	mmap_buffer() : mmap_buffer(0) {}
+
 	mmap_buffer(size_type initial_elements) 
 		: allocated_(round_to_page(initial_elements * sizeof(POD_T))),
 		  buffer_(nullptr),
@@ -159,7 +161,8 @@ public:
 		 buffer_(moved.buffer_),
 		 refcount_(moved.refcount_)
 	{
-		moved.refcount = moved.buffer_ = nullptr;
+		moved.refcount_ = nullptr;
+		moved.buffer_ = nullptr;
 		moved.allocated_ = 0;
 
 	}
@@ -239,7 +242,7 @@ public:
 
 	/* this doesn't act as a write, no copy made */
 	const_pointer const_ptr() const {
-		return const_cast<const_pointer>(buffer_);
+		return (const_pointer)(buffer_);
 	}
 
 	/* This acts as a write. If refcount > 1, copy made first */

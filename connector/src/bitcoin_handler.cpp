@@ -60,8 +60,8 @@ void accept_handler::io_cb(ev::io &watcher, int /*revents*/) {
 }
 
 handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_t a_remote_port, in_addr a_local_addr, uint16_t a_local_port) 
-	: read_queue(), to_read(0),
-	  write_queue(), to_write(0),
+	: read_queue(0),
+	  write_queue(),
 	  remote_addr(a_remote_addr), remote_port(a_remote_port),
 	  local_addr(a_local_addr), local_port(a_local_port), 
 	  state(a_state), 
@@ -88,7 +88,7 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 		append_for_write(get_message("version", vers.as_buffer(), vers.size));
 	} else if (a_state == RECV_VERSION_REPLY_HDR) {
 		io.set(fd, ev::READ);
-		to_read = sizeof(struct packed_message);
+		read_queue.to_read(sizeof(struct packed_message));
 	}
 	assert(io.fd > 0);
 	io.start();
@@ -129,12 +129,7 @@ void handler::suicide() {
 
 void handler::append_for_write(const struct packed_message *m) {
 	g_log<BITCOIN_MSG>(id, true, m);
-	size_t old_loc = write_queue.location();
-	write_queue.grow(write_queue.location() + to_write + m->length + sizeof(*m));
-	write_queue.seek(write_queue.location() + to_write);
-	write_queue.append(m);
-	to_write += m->length + sizeof(*m);
-	write_queue.seek(old_loc);
+	write_queue.append((const uint8_t *) m, m->length + sizeof(*m));
 }
 
 void handler::append_for_write(unique_ptr<struct packed_message> m) {
@@ -145,11 +140,9 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 	assert(watcher.fd >= 0);
 	ssize_t r(1);
 	while(r > 0) { /* do all reads we can in this event handler */
-		while (r > 0 && to_read > 0) {
-			read_queue.grow(read_queue.location() + to_read);
-			g_log<DEBUG>("Calling receive for", to_read, "bytes");
-			r = recv(watcher.fd, read_queue.offset_buffer(), to_read, 0);
-			g_log<DEBUG>("Got",r);
+		while (r > 0 && read_queue.hungry()) {
+			pair<int,bool> res(read_queue.do_read(watcher.fd));
+			r = res.first;
 			if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 				/* 
 				   most probably a disconnect of some sort, though I
@@ -166,10 +159,6 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 				return;
 
 			}
-			if (r > 0) {
-				to_read -= r;
-				read_queue.seek(read_queue.location() + r);
-			}
 			if (r == 0) { /* got disconnected! */
 				/* LOG disconnect */
 				g_log<BITCOIN>("Orderly disconnect", id);
@@ -178,50 +167,48 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 			}
 		}
 
-		if (to_read == 0) {
+		if (!read_queue.hungry()) { /* all read up */
+			mmap_buffer<uint8_t> readbuf(read_queue.extract_buffer());
+
 			/* item needs to be handled */
 			switch(state & RECV_MASK) {
 			case RECV_HEADER:
 				/* interpret data as message header and get length, reset remaining */ 
-				to_read = ((struct packed_message*) read_queue.raw_buffer())->length;
-				if (to_read == 0) { /* payload is packed message */
-					handle_message_recv((struct packed_message*) read_queue.raw_buffer());
-					read_queue.seek(0);
-					to_read = sizeof(struct packed_message);
+				read_queue.to_read(((const struct packed_message*) readbuf.const_ptr())->length);
+				if (!read_queue.hungry()) { /* payload is packed message */
+					handle_message_recv((const struct packed_message*) readbuf.const_ptr());
+					read_queue.cursor(0);
+					read_queue.to_read(sizeof(struct packed_message));
 				} else {
 					state = (state & SEND_MASK) | RECV_PAYLOAD;
 				}
 				break;
 			case RECV_PAYLOAD:
-				handle_message_recv((struct packed_message*) read_queue.raw_buffer());
-				read_queue.seek(0);
-				to_read = sizeof(struct packed_message);
+				handle_message_recv((const struct packed_message*) readbuf.const_ptr());
+				read_queue.cursor(0);
+				read_queue.to_read(sizeof(struct packed_message));
 				state = (state & SEND_MASK) | RECV_HEADER;
 				break;
 			case RECV_VERSION_INIT: // we initiated handshake, we expect ack
 				// next message should be zero length header with verack command
-				g_log<BITCOIN_MSG>(id, false, (struct packed_message*) read_queue.raw_buffer());
+				g_log<BITCOIN_MSG>(id, false, (const struct packed_message*) readbuf.const_ptr());
 				state = (state & SEND_MASK) | RECV_HEADER;
-				to_read = sizeof(struct packed_message);
+				read_queue.to_read(sizeof(struct packed_message));
 				break;
 			case RECV_VERSION_REPLY_HDR: // they initiated the handshake, but we've only read the header
-				to_read = ((struct packed_message*) read_queue.raw_buffer())->length;
+				read_queue.to_read(((const struct packed_message*) readbuf.const_ptr())->length);
 				state = (state & SEND_MASK) | RECV_VERSION_REPLY;
 				break;
 			case RECV_VERSION_REPLY: // they initiated handshake, send our version and verack
-				g_log<BITCOIN_MSG>(id, false, (struct packed_message*)read_queue.raw_buffer());
-				read_queue.seek(0);
-				to_read = sizeof(struct packed_message);
+				g_log<BITCOIN_MSG>(id, false, (const struct packed_message*)readbuf.const_ptr());
+				read_queue.cursor(0);
+				read_queue.to_read(sizeof(struct packed_message));
 					
 				struct combined_version vers(get_version(USER_AGENT, remote_addr, remote_port, local_addr, local_port));
 				unique_ptr<struct packed_message> vmsg(get_message("version", vers.as_buffer(), vers.size));
 
-				size_t start = write_queue.location();
-
 				append_for_write(move(vmsg));
-				write_queue.seek(start + to_write);;
 				append_for_write(get_message("verack"));
-				write_queue.seek(start);
 				state = (state & SEND_MASK) | SEND_VERSION_REPLY | RECV_HEADER;
 				break;
 			}
@@ -235,23 +222,18 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 void handler::do_write(ev::io &watcher, int /*revents*/) {
 
 	ssize_t r(1);
-	while (to_write && r > 0) { 
-		assert(write_queue.location() + to_write <= write_queue.end());
-		r = write(watcher.fd, write_queue.offset_buffer(), to_write);
-
+	while (write_queue.to_write() && r > 0) { 
+		pair<int,bool> res = write_queue.do_write(watcher.fd);
+		r = res.first;
 		if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 			/* most probably a disconnect of some sort, log error and queue object for deletion */
 			g_log<BITCOIN>("Received error on write:", id, strerror(errno));
 			suicide();
 			return;
 		} 
-		if (r > 0) {
-			to_write -= r;
-			write_queue.seek(write_queue.location() + r);
-		}
 	}
 
-	if (to_write == 0) {
+	if (write_queue.to_write() == 0) {
 		switch(state & SEND_MASK) {
 		case SEND_VERSION_INIT:
 			state = RECV_VERSION_INIT;
@@ -264,7 +246,6 @@ void handler::do_write(ev::io &watcher, int /*revents*/) {
 		}
 
 		state &= RECV_MASK;
-		write_queue.seek(0);
 
 	}
          
