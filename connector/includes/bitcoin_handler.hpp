@@ -46,6 +46,8 @@ private:
 	in_addr local_addr; /* address we connected on */
 	uint16_t local_port;
 
+	uint32_t timestamp;
+
 	uint32_t state;
 
 	ev::io io;

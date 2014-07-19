@@ -64,6 +64,7 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 	  write_queue(),
 	  remote_addr(a_remote_addr), remote_port(a_remote_port),
 	  local_addr(a_local_addr), local_port(a_local_port), 
+	  timestamp(time(NULL)),
 	  state(a_state), 
 	  io(),
 	  id(id_pool++) 
@@ -105,6 +106,24 @@ void handler::handle_message_recv(const struct packed_message *msg) {
 	} else if (strcmp(msg->command, "getblocks") == 0) {
 		vector<uint8_t> payload(get_inv(vector<inv_vector>()));
 		append_for_write(get_message("inv", payload));
+	} else if (strcmp(msg->command, "getaddr") == 0) {
+		if (g_active_handlers.size()) {
+			/* TODO: pick N? a handler(s) at random */
+			const handler &rand(*(g_active_handlers.begin()->second));
+			cvector<uint8_t> payload;
+			payload.lazy_resize(64);
+			size_t varint_size = to_varint(payload.data(), 1);
+			size_t total_size = varint_size + sizeof(struct version_packed_net_addr) + 4;
+			payload.lazy_resize(total_size);
+			uint8_t *buf = payload.data() + varint_size;
+
+			*((uint32_t*) buf) = rand.timestamp;
+			buf += 4;
+			set_address((struct version_packed_net_addr *)(buf), rand.remote_addr, rand.remote_port);
+			append_for_write(get_message("addr", payload.data(), total_size));
+		}
+		
+
 	}
 }
 
