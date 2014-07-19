@@ -106,7 +106,7 @@ void handler::handle_message_recv(const struct packed_message *msg) {
 	} else if (strcmp(msg->command, "getblocks") == 0) {
 		vector<uint8_t> payload(get_inv(vector<inv_vector>()));
 		append_for_write(get_message("inv", payload));
-	} else if (strcmp(msg->command, "getaddr") == 0) {
+	} else if (false && strcmp(msg->command, "getaddr") == 0) { /* need to be careful about pollution, placeholder */
 		if (g_active_handlers.size()) {
 			/* TODO: pick N? a handler(s) at random */
 			const handler &rand(*(g_active_handlers.begin()->second));
