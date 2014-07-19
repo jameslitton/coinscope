@@ -9,7 +9,9 @@
 
 #include "crypto.hpp"
 #include "command_structures.hpp"
-#include "iobuf.hpp"
+#include "read_buffer.hpp"
+#include "write_buffer.hpp"
+
 
 namespace ctrl {
 
@@ -23,11 +25,9 @@ const uint32_t SEND_MESSAGE = 0x10000;
 
 class handler {
 private:
-	iobuf read_queue;
-	size_t to_read;
+	read_buffer read_queue;
 
-	iobuf write_queue; /* most logging should be through logging facility/filter */
-	size_t to_write;
+	write_buffer write_queue; /* most logging should be through logging facility/filter */
 
 	uint32_t state;
 
@@ -41,10 +41,8 @@ private:
 
 public:
 	handler(int fd) 
-		: read_queue(),
-		  to_read(sizeof(struct message)),
+		: read_queue(sizeof(struct message)),
 		  write_queue(),
-		  to_write(0),
 		  state(RECV_HEADER), 
 		  id(id_pool++), 
 		  regid(nonce_gen32()),

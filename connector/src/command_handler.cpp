@@ -29,7 +29,7 @@ public:
 	time_t registration_time;
 	shared_ptr<struct bitcoin::packed_message> msg;
 
-	registered_msg(time_t regtime, struct message *messg) 
+	registered_msg(time_t regtime, const struct message *messg) 
 		: registration_time(regtime), 
 		  msg((struct bitcoin::packed_message *) ::operator new(ntoh(messg->length)))
 	{
@@ -65,9 +65,8 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 		}
 		out.reserve(sizeof(buffer));
 		copy(buffer, buffer + sizeof(buffer), back_inserter(out));
-		iobuf_spec::append(&write_queue, out.data(), out.size());
+		write_queue.append(out.data(), out.size());
 		state |= SEND_MESSAGE;
-		to_write += out.size();
 	} else if (msg->command == COMMAND_SEND_MSG) {
 		uint32_t message_id = ntoh(msg->message_id);
 		auto it = g_messages.find(message_id);
@@ -75,40 +74,44 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 			g_log<ERROR>("invalid message id", message_id);
 		} else {
 			shared_ptr<struct bc::packed_message> packed(it->second.get_buffer());
-			uint32_t end = ntoh(msg->target_cnt);
-			for(uint32_t i = 0; i < end; ++i) {
-				uint32_t target = ntoh(msg->targets[i]);
-				bc::handler_map::iterator hit = bc::g_active_handlers.find(target);
-				if (hit != bc::g_active_handlers.end()) {
-					hit->second->append_for_write(packed.get());
+			uint32_t target_cnt = ntoh(msg->target_cnt);
+			if (target_cnt == 0) {
+				for_each(bc::g_active_handlers.begin(), bc::g_active_handlers.end(), [&](pair<uint32_t, bc::handler*> p) {
+						p.second->append_for_write(packed.get());
+					});
+			} else {
+				for(uint32_t i = 0; i < target_cnt; ++i) {
+					uint32_t target = ntoh(msg->targets[i]);
+					bc::handler_map::iterator hit = bc::g_active_handlers.find(target);
+					if (hit != bc::g_active_handlers.end()) {
+						hit->second->append_for_write(packed.get());
+					}
 				}
 			}
 		}
-		
-		
 	}
-
 }
+
+
 
 void handler::receive_header() {
 	/* interpret data as message header and get length, reset remaining */ 
-	struct message *msg = (struct message*)read_queue.raw_buffer();
-	to_read = ntoh(msg->length);
+	const struct message *msg = (const struct message*) ((const uint8_t*) read_queue);
+	read_queue.to_read(ntoh(msg->length));
 	if (msg->version != 0) {
 		g_log<DEBUG>("Warning: Unsupported version");
 		
 	}
-	if (to_read == 0) { /* payload is packed message */
+	if (read_queue.to_read() == 0) { /* payload is packed message */
 		if (msg->message_type == REGISTER) {
 			uint32_t oldid = regid;
 			/* changing id and sending it. */
 			regid = nonce_gen32();
 			g_log<CTRL>("UNREGISTERING", oldid);
 			g_log<CTRL>("REGISTERING", regid);
-			write_queue.grow(write_queue.location() + 4);
 			uint32_t netorder = hton(regid);
-			write_queue.append(&netorder);
-			to_write += 4;
+			write_queue.append((uint8_t*)&netorder, sizeof(netorder));
+			state |= SEND_MESSAGE;
 			/* msg->payload should be zero length here */
 			/* send back their new user id */
 		} else {
@@ -117,9 +120,8 @@ void handler::receive_header() {
 			g_log<CTRL>(oss.str());
 			/* command and bitcoin payload messages always have a payload */
 		}
-
-		read_queue.seek(0);
-		to_read = sizeof(struct message);
+		read_queue.cursor(0);
+		read_queue.to_read(sizeof(struct message));
 
 	} else {
 		state = (state & SEND_MASK) | RECV_PAYLOAD;
@@ -127,7 +129,7 @@ void handler::receive_header() {
 }
 
 void handler::receive_payload() {
-	struct message *msg = (struct message*) read_queue.raw_buffer();
+	const struct message *msg = (const struct message*) ((const uint8_t*)read_queue);
 
 	if (msg->version != 0) {
 		g_log<DEBUG>("Warning: unsupported version. Attempting to receive payload");
@@ -143,18 +145,14 @@ void handler::receive_payload() {
 			g_log<CTRL>("Registering message ", regid, (struct bitcoin::packed_message *) msg->payload);
 			uint32_t netorder;
 			if (pair.second) {
-				write_queue.grow(write_queue.location() + 4);
 				netorder = hton(id);
 				g_log<CTRL>("message registered", regid, id);
 			} else {
 				netorder = hton((uint32_t)0);
 				g_log<ERROR>("Duplicate id generated, surprising");
 			}
-			size_t loc = write_queue.location();
-			write_queue.seek(write_queue.location() + to_write);
-			write_queue.append(&netorder);
-			write_queue.seek(loc);
-			to_write += 4;
+			write_queue.append((uint8_t*)&netorder, sizeof(netorder));
+			state |= SEND_MESSAGE;
 		}
 		break;
 	case COMMAND:
@@ -192,8 +190,8 @@ void handler::receive_payload() {
 		g_log<CTRL>("unknown payload type", regid, msg);
 		break;
 	}
-
-	to_read = sizeof(struct message);
+	read_queue.cursor(0);
+	read_queue.to_read(sizeof(struct message));
 	state = (state & SEND_MASK) | RECV_HEADER;
 
 }
@@ -201,15 +199,11 @@ void handler::receive_payload() {
 void handler::do_read(ev::io &watcher, int /* revents */) {
 	ssize_t r(1);
 	while(r > 0) { 
-		do {
-			read_queue.grow(read_queue.location() + to_read);
-			r = recv(watcher.fd, read_queue.offset_buffer(), to_read, 0);
+		while (r > 0 && read_queue.hungry()) {
+			pair<int,bool> res(read_queue.do_read(watcher.fd));
+			r = res.first;
 			if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN) { 
 				g_log<ERROR>(strerror(errno), "(command_handler)");
-			}
-			if (r > 0) {
-				to_read -= r;
-				read_queue.seek(read_queue.location() + r);
 			}
 
 			if (r == 0) { /* got disconnected! */
@@ -222,9 +216,9 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 				delete this;
 				return;
 			}
-		} while (r > 0 && to_read > 0);
+		}
 
-		if (to_read == 0) {
+		if (read_queue.to_read() == 0) {
 			/* item needs to be handled */
 			switch(state & RECV_MASK) {
 			case RECV_HEADER:
@@ -245,19 +239,16 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 void handler::do_write(ev::io &watcher, int /* revents */) {
 
 	ssize_t r(1);
-	while (to_write && r > 0) {
-		r = write(watcher.fd, write_queue.offset_buffer(), to_write);
+	while (write_queue.to_write() && r > 0) { 
+		pair<int,bool> res = write_queue.do_write(watcher.fd);
+		r = res.first;
 		if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN) { 
 			g_log<ERROR>(strerror(errno), "(command_handler)");
 		}
-		if (r > 0) {
-			write_queue.seek(write_queue.location() + r);
-		}
 	}
 
-	if (to_write == 0) {
+	if (write_queue.to_write() == 0) {
 		state &= ~SEND_MASK;
-		write_queue.seek(0);
 	}
 }
 

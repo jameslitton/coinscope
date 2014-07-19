@@ -102,11 +102,9 @@ void handler::handle_message_recv(const struct packed_message *msg) {
 		memcpy(pong, msg, sizeof(*pong) + msg->length);
 		pong->command[1] = 'o';
 		append_for_write(pong);
-		state |= SEND_MESSAGE;
 	} else if (strcmp(msg->command, "getblocks") == 0) {
 		vector<uint8_t> payload(get_inv(vector<inv_vector>()));
 		append_for_write(get_message("inv", payload));
-		state |= SEND_MESSAGE;
 	}
 }
 
@@ -130,6 +128,7 @@ void handler::suicide() {
 void handler::append_for_write(const struct packed_message *m) {
 	g_log<BITCOIN_MSG>(id, true, m);
 	write_queue.append((const uint8_t *) m, m->length + sizeof(*m));
+	state |= SEND_MESSAGE;
 }
 
 void handler::append_for_write(unique_ptr<struct packed_message> m) {
