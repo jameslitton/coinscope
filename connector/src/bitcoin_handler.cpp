@@ -86,7 +86,9 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 		io.set(fd, ev::WRITE);
 		/* TODO: profile to see if extra copies are worth optimizing away */
 		struct combined_version vers(get_version(USER_AGENT, local_addr, local_port, remote_addr, remote_port));
-		append_for_write(get_message("version", vers.as_buffer(), vers.size));
+		unique_ptr<struct packed_message> m(get_message("version", vers.as_buffer(), vers.size));
+		g_log<BITCOIN_MSG>(id, true, m.get());
+		write_queue.append((const uint8_t *) m.get(), m->length + sizeof(*m));
 	} else if (a_state == RECV_VERSION_REPLY_HDR) {
 		io.set(fd, ev::READ);
 		read_queue.to_read(sizeof(struct packed_message));
@@ -149,7 +151,7 @@ void handler::append_for_write(const struct packed_message *m) {
 	write_queue.append((const uint8_t *) m, m->length + sizeof(*m));
 
 	if (!(state & SEND_MASK)) { /* okay, need to add to the io state */
-		int events = ev::WRITE | (state & RECV_MASK ? ev::READ : 0);
+		int events = ev::WRITE | (state & RECV_MASK ? ev::READ : ev::NONE);
 		io.set(events);
 	}
 	state |= SEND_MESSAGE;
