@@ -147,7 +147,13 @@ void handler::suicide() {
 void handler::append_for_write(const struct packed_message *m) {
 	g_log<BITCOIN_MSG>(id, true, m);
 	write_queue.append((const uint8_t *) m, m->length + sizeof(*m));
+
+	if (!(state & SEND_MASK)) { /* okay, need to add to the io state */
+		int events = ev::WRITE | (state & RECV_MASK ? ev::READ : 0);
+		io.set(events);
+	}
 	state |= SEND_MESSAGE;
+
 }
 
 void handler::append_for_write(unique_ptr<struct packed_message> m) {
