@@ -16,6 +16,8 @@ public:
 	size_t cursor() const;
 	bool hungry() const;
 	mmap_buffer<uint8_t> extract_buffer();
+	explicit operator const uint8_t*() const { return buffer_.const_ptr(); }
+	explicit operator uint8_t*()  { return buffer_.ptr(); }
 private:
 	size_t cursor_;
 	size_t to_read_;

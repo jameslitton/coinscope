@@ -186,7 +186,7 @@ public:
 		if (count > size_) {
 			reserve(count);
 			iterator cur = end();
-			size_ = count;
+			size_ = count; /* changes value of end() */
 			for(; cur != end(); ++cur) {
 				*cur = value;
 			}

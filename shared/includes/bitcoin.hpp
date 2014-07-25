@@ -172,6 +172,11 @@ inline std::unique_ptr<struct packed_message> get_message(const char *command) {
 uint32_t compute_checksum(const std::vector<uint8_t> &payload);
 uint32_t compute_checksum(const uint8_t *payload, size_t len);
 
+uint8_t to_varint(uint8_t *buf, uint64_t val);
+uint64_t get_varint(const uint8_t *buf);
+uint8_t get_varint_size(const uint8_t *bytes);
+void set_address(struct version_packed_net_addr *dest, struct in_addr src, uint16_t port);
+
 };
 
 #endif

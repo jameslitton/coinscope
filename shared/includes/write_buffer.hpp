@@ -2,6 +2,8 @@
 #define WRITE_BUFFER_HPP
 
 #include <list>
+#include <memory>
+#include <cstring>
 
 #include "mmap_buffer.hpp"
 
@@ -28,6 +30,7 @@ private:
 		size_t writable; /* first _writable_ bytes in buffer are valid to write */
 		mmap_buffer<uint8_t> buffer;
 		buffer_container(mmap_buffer<uint8_t> b, size_t len) : cursor(0), writable(len), buffer(b) {}
+
 
 		/* TODO: make smarter */
 		buffer_container(const uint8_t *ptr, size_t len) : cursor(0), writable(len), buffer(len) {

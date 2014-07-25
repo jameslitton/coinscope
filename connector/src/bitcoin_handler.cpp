@@ -64,6 +64,7 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 	  write_queue(),
 	  remote_addr(a_remote_addr), remote_port(a_remote_port),
 	  local_addr(a_local_addr), local_port(a_local_port), 
+	  timestamp(time(NULL)),
 	  state(a_state), 
 	  io(),
 	  id(id_pool++) 
@@ -85,7 +86,9 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 		io.set(fd, ev::WRITE);
 		/* TODO: profile to see if extra copies are worth optimizing away */
 		struct combined_version vers(get_version(USER_AGENT, local_addr, local_port, remote_addr, remote_port));
-		append_for_write(get_message("version", vers.as_buffer(), vers.size));
+		unique_ptr<struct packed_message> m(get_message("version", vers.as_buffer(), vers.size));
+		g_log<BITCOIN_MSG>(id, true, m.get());
+		write_queue.append((const uint8_t *) m.get(), m->length + sizeof(*m));
 	} else if (a_state == RECV_VERSION_REPLY_HDR) {
 		io.set(fd, ev::READ);
 		read_queue.to_read(sizeof(struct packed_message));
@@ -102,11 +105,27 @@ void handler::handle_message_recv(const struct packed_message *msg) {
 		memcpy(pong, msg, sizeof(*pong) + msg->length);
 		pong->command[1] = 'o';
 		append_for_write(pong);
-		state |= SEND_MESSAGE;
 	} else if (strcmp(msg->command, "getblocks") == 0) {
 		vector<uint8_t> payload(get_inv(vector<inv_vector>()));
 		append_for_write(get_message("inv", payload));
-		state |= SEND_MESSAGE;
+	} else if (false && strcmp(msg->command, "getaddr") == 0) { /* need to be careful about pollution, placeholder */
+		if (g_active_handlers.size()) {
+			/* TODO: pick N? a handler(s) at random */
+			const handler &rand(*(g_active_handlers.begin()->second));
+			cvector<uint8_t> payload;
+			payload.lazy_resize(64);
+			size_t varint_size = to_varint(payload.data(), 1);
+			size_t total_size = varint_size + sizeof(struct version_packed_net_addr) + 4;
+			payload.lazy_resize(total_size);
+			uint8_t *buf = payload.data() + varint_size;
+
+			*((uint32_t*) buf) = rand.timestamp;
+			buf += 4;
+			set_address((struct version_packed_net_addr *)(buf), rand.remote_addr, rand.remote_port);
+			append_for_write(get_message("addr", payload.data(), total_size));
+		}
+		
+
 	}
 }
 
@@ -130,6 +149,13 @@ void handler::suicide() {
 void handler::append_for_write(const struct packed_message *m) {
 	g_log<BITCOIN_MSG>(id, true, m);
 	write_queue.append((const uint8_t *) m, m->length + sizeof(*m));
+
+	if (!(state & SEND_MASK)) { /* okay, need to add to the io state */
+		int events = ev::WRITE | (state & RECV_MASK ? ev::READ : ev::NONE);
+		io.set(events);
+	}
+	state |= SEND_MESSAGE;
+
 }
 
 void handler::append_for_write(unique_ptr<struct packed_message> m) {
