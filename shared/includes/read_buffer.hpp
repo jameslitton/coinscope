@@ -1,9 +1,9 @@
 #ifndef READ_BUFFER_HPP
 #define READ_BUFFER_HPP
 
-#include "mmap_buffer.hpp"
+#include "alloc_buffer.hpp"
 
-/* to be used for accumulating read calls and extract mmap_buffers when ready to act on the data */
+/* to be used for accumulating read calls and extract realloc when ready to act on the data */
 class read_buffer { 
 public:
 	/* return value from read, whether the read is complete (i.e., buffer can be extracted) */
@@ -15,13 +15,13 @@ public:
 	void cursor(size_t loc) ;
 	size_t cursor() const;
 	bool hungry() const;
-	mmap_buffer<uint8_t> extract_buffer();
+	alloc_buffer<uint8_t> extract_buffer();
 	explicit operator const uint8_t*() const { return buffer_.const_ptr(); }
 	explicit operator uint8_t*()  { return buffer_.ptr(); }
 private:
 	size_t cursor_;
 	size_t to_read_;
-	mmap_buffer<uint8_t> buffer_;
+	alloc_buffer<uint8_t> buffer_;
 
 };
 

@@ -40,7 +40,7 @@ void write_buffer::append(const uint8_t *ptr, size_t len) {
 	buffers_.emplace_back(ptr, len);
 	to_write_ += len;
 }
-void write_buffer::append(mmap_buffer<uint8_t> &buf, size_t len) {
+void write_buffer::append(alloc_buffer<uint8_t> &buf, size_t len) {
 	buffers_.emplace_back(buf, len);
 	to_write_ += len;
 }

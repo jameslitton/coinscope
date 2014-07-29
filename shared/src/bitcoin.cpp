@@ -118,7 +118,7 @@ struct combined_version get_version(const string &user_agent,
 	struct combined_version rv(bitcoin_agent.size());
 	rv.version(MAX_VERSION);
 	rv.services(SERVICES);
-	//rv.timestamp(time(NULL));
+	rv.timestamp(time(NULL));
 	set_address(&rv.prefix->recv, recv, recv_port);
 	set_address(&rv.prefix->from, from, from_port);
 	rv.nonce(nonce_gen64());

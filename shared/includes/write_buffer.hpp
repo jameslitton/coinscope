@@ -5,7 +5,7 @@
 #include <memory>
 #include <cstring>
 
-#include "mmap_buffer.hpp"
+#include "alloc_buffer.hpp"
 
 /* to be used for accumulating data to be written. */
 class write_buffer { 
@@ -16,7 +16,7 @@ public:
 	std::pair<int,bool> do_write(int fd, size_t size); /* will write size bytes */
 
 	void append(const uint8_t *ptr, size_t len);
-	void append(mmap_buffer<uint8_t> &buf, size_t len);
+	void append(alloc_buffer<uint8_t> &buf, size_t len);
 
    size_t to_write() const;
 
@@ -28,8 +28,8 @@ private:
 	struct buffer_container {
 		size_t cursor; /* location from which we've already written bytes */
 		size_t writable; /* first _writable_ bytes in buffer are valid to write */
-		mmap_buffer<uint8_t> buffer;
-		buffer_container(mmap_buffer<uint8_t> b, size_t len) : cursor(0), writable(len), buffer(b) {}
+		alloc_buffer<uint8_t> buffer;
+		buffer_container(alloc_buffer<uint8_t> b, size_t len) : cursor(0), writable(len), buffer(b) {}
 
 
 		/* TODO: make smarter */
