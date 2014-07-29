@@ -118,6 +118,7 @@ mmap_buffer<T>::~mmap_buffer() {
 template <typename T> 
 void mmap_buffer<T>::realloc(size_type new_elt_cnt) {
 	size_type size = round_to_page(new_elt_cnt * sizeof(POD_T));
+	assert(size >= new_elt_cnt * sizeof(POD_T));
 
 	if (size == allocated_) {
 		return;
@@ -131,6 +132,7 @@ void mmap_buffer<T>::realloc(size_type new_elt_cnt) {
 		}
 		/* NOTE: keep iterators as offset from buffer */
 		buffer_ = newbuf;
+		allocated_ = size;
 
 
 	} else { /* time to COW */
@@ -139,6 +141,8 @@ void mmap_buffer<T>::realloc(size_type new_elt_cnt) {
 		memcpy(tmp.ptr(), buffer_, n);
 		*this = tmp;
 	}
+
+	assert(allocated_ == size);
 }
 
 

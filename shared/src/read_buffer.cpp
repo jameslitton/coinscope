@@ -17,7 +17,7 @@ pair<int,bool> read_buffer::do_read(int fd, size_t size) {
 	if (rv.first > 0) {
 		cursor_ += rv.first;
 		to_read_ -= rv.first;
-	}
+	} 
 	rv.second = to_read_ == 0;
 	return rv;
 }
@@ -44,6 +44,6 @@ size_t read_buffer::cursor() const {
 
 bool read_buffer::hungry() const { return to_read() > 0; }
 
-mmap_buffer<uint8_t> read_buffer::extract_buffer() {
+alloc_buffer<uint8_t> read_buffer::extract_buffer() {
 	return buffer_;
 }
