@@ -7,10 +7,7 @@
 #include <map>
 #include <stdexcept>
 
-
 #include "mmap_buffer.hpp"
-
-
 
 using namespace std;
 
@@ -48,7 +45,8 @@ mmap_buffer<T>::mmap_buffer(size_type initial_elements)
 		buffer_ = (POD_T*)it->second.top();
 		it->second.pop();
 	} else {
-		buffer_ = (POD_T*)mmap(NULL, allocated_, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+
+		buffer_ = (POD_T*)mmap(NULL, allocated_, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 		if (buffer_ == MAP_FAILED) {
 			throw std::runtime_error(std::string("mmap failure: ") + strerror(errno));
 		}
@@ -136,7 +134,7 @@ void mmap_buffer<T>::realloc(size_type new_elt_cnt) {
 
 
 	} else { /* time to COW */
-		mmap_buffer<T> tmp(size);
+		mmap_buffer<T> tmp(new_elt_cnt);
 		size_type n = std::min(new_elt_cnt * sizeof(POD_T), allocated_);
 		memcpy(tmp.ptr(), buffer_, n);
 		*this = tmp;
@@ -157,7 +155,7 @@ typename mmap_buffer<T>::pointer mmap_buffer<T>::ptr() {
 			newbuf = (POD_T*)it->second.top();
 			it->second.pop();
 		} else {
-			newbuf = (POD_T*)mmap(NULL, allocated_, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+			newbuf = (POD_T*)mmap(NULL, allocated_, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 			if (newbuf == MAP_FAILED) {
 				throw std::runtime_error(std::string("mmap failure: ") + strerror(errno));
 			}
@@ -171,6 +169,3 @@ typename mmap_buffer<T>::pointer mmap_buffer<T>::ptr() {
 }
 
 template class mmap_buffer<uint8_t>;
-
-
-
