@@ -1,5 +1,4 @@
 #include <cstring>
-#include <sys/mman.h>
 #include <unistd.h>
 
 #include <string>
@@ -23,11 +22,10 @@ alloc_buffer<T>::alloc_buffer() : alloc_buffer(0) {}
 
 template <typename T> 
 alloc_buffer<T>::alloc_buffer(size_type initial_elements) 
-	: allocated_(initial_elements * sizeof(POD_T)),
+	: allocated_(initial_elements ? initial_elements * sizeof(POD_T) : 16 * sizeof(POD_T)),
 	  buffer_(nullptr),
 	  refcount_(new size_type(1))
 {
-
 	buffer_ = (POD_T*)malloc(allocated_);
 	if (buffer_ == nullptr) {
 		throw runtime_error(string(" failure: ") + strerror(errno));
@@ -111,7 +109,7 @@ void alloc_buffer<T>::realloc(size_type new_elt_cnt) {
 	} else { /* time to COW */
 
 		alloc_buffer<T> tmp(size);
-		size_type n = std::min(new_elt_cnt * sizeof(POD_T), allocated_);
+		size_type n = std::min(size, allocated_);
 		memcpy(tmp.ptr(), buffer_, n);
 		*this = tmp;
 	}
@@ -136,6 +134,4 @@ typename alloc_buffer<T>::pointer alloc_buffer<T>::ptr() {
 }
 
 template class alloc_buffer<uint8_t>;
-
-
-
+template class alloc_buffer<uint32_t>;
