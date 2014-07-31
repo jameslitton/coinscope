@@ -44,6 +44,6 @@ size_t read_buffer::cursor() const {
 
 bool read_buffer::hungry() const { return to_read() > 0; }
 
-alloc_buffer<uint8_t> read_buffer::extract_buffer() {
+wrapped_buffer<uint8_t> read_buffer::extract_buffer() {
 	return buffer_;
 }

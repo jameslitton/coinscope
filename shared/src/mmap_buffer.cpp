@@ -11,8 +11,6 @@
 
 using namespace std;
 
-static map<size_t, stack<void*> > mmap_old_pages;
-
 static size_t round_to_page(size_t size) {
 	static long page_size = sysconf(_SC_PAGESIZE);
 	assert(page_size > 0);
@@ -28,8 +26,6 @@ static size_t round_to_page(size_t size) {
 }
 
 
-
-
 template <typename T> 
 mmap_buffer<T>::mmap_buffer() : mmap_buffer(0) {}
 
@@ -39,17 +35,9 @@ mmap_buffer<T>::mmap_buffer(size_type initial_elements)
 	  buffer_(nullptr),
 	  refcount_(new size_type(1))
 {
-
-	auto it = mmap_old_pages.find(allocated_);
-	if (it != mmap_old_pages.end() && it->second.size()) {
-		buffer_ = (POD_T*)it->second.top();
-		it->second.pop();
-	} else {
-
-		buffer_ = (POD_T*)mmap(NULL, allocated_, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-		if (buffer_ == MAP_FAILED) {
-			throw std::runtime_error(std::string("mmap failure: ") + strerror(errno));
-		}
+	buffer_ = (POD_T*)mmap(NULL, allocated_, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (buffer_ == MAP_FAILED) {
+		throw std::runtime_error(std::string("mmap failure: ") + strerror(errno));
 	}
 }
 
@@ -99,12 +87,7 @@ mmap_buffer<T>::~mmap_buffer() {
 		--*refcount_;
 		if (*refcount_ == 0) {
 			delete refcount_;
-			auto it = mmap_old_pages.find(allocated_);
-			if (it != mmap_old_pages.end() && it->second.size() * allocated_ < (1 << 20)) {
-				it->second.push(buffer_);
-			} else {
-				munmap(buffer_, allocated_);
-			}
+			munmap(buffer_, allocated_);
 		}
 	}
 	refcount_ = nullptr;
@@ -149,16 +132,10 @@ template <typename T>
 typename mmap_buffer<T>::pointer mmap_buffer<T>::ptr() {
 	if (*refcount_ > 1) {
 
-		auto it = mmap_old_pages.find(allocated_);
 		POD_T *newbuf = nullptr;
-		if (it != mmap_old_pages.end() && it->second.size()) {
-			newbuf = (POD_T*)it->second.top();
-			it->second.pop();
-		} else {
-			newbuf = (POD_T*)mmap(NULL, allocated_, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-			if (newbuf == MAP_FAILED) {
-				throw std::runtime_error(std::string("mmap failure: ") + strerror(errno));
-			}
+		newbuf = (POD_T*)mmap(NULL, allocated_, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+		if (newbuf == MAP_FAILED) {
+			throw std::runtime_error(std::string("mmap failure: ") + strerror(errno));
 		}
 		memcpy(newbuf, buffer_, allocated_);
 		buffer_ = newbuf;
@@ -169,3 +146,4 @@ typename mmap_buffer<T>::pointer mmap_buffer<T>::ptr() {
 }
 
 template class mmap_buffer<uint8_t>;
+template class mmap_buffer<uint32_t>;

@@ -194,7 +194,7 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 		}
 
 		if (!read_queue.hungry()) { /* all read up */
-			alloc_buffer<uint8_t> readbuf(read_queue.extract_buffer());
+			wrapped_buffer<uint8_t> readbuf(read_queue.extract_buffer());
 
 			/* item needs to be handled */
 			switch(state & RECV_MASK) {

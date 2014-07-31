@@ -1,7 +1,7 @@
 #ifndef READ_BUFFER_HPP
 #define READ_BUFFER_HPP
 
-#include "alloc_buffer.hpp"
+#include "wrapped_buffer.hpp"
 
 /* to be used for accumulating read calls and extract realloc when ready to act on the data */
 class read_buffer { 
@@ -15,13 +15,13 @@ public:
 	void cursor(size_t loc) ;
 	size_t cursor() const;
 	bool hungry() const;
-	alloc_buffer<uint8_t> extract_buffer();
+	wrapped_buffer<uint8_t> extract_buffer();
 	explicit operator const uint8_t*() const { return buffer_.const_ptr(); }
 	explicit operator uint8_t*()  { return buffer_.ptr(); }
 private:
 	size_t cursor_;
 	size_t to_read_;
-	alloc_buffer<uint8_t> buffer_;
+	wrapped_buffer<uint8_t> buffer_;
 
 };
 
