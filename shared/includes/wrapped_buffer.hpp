@@ -139,7 +139,6 @@ public:
 		return mbuffer_ ? mbuffer_->const_ptr() : abuffer_->const_ptr();
 	}
 
-	/* This acts as a write. If refcount > 1, copy made first */
 	pointer ptr();
 
 	size_type allocated() const {
@@ -147,7 +146,5 @@ public:
 	}
 
 };
-
-
 
 #endif

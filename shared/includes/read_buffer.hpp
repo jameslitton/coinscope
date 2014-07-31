@@ -7,7 +7,9 @@
 class read_buffer { 
 public:
 	/* return value from read, whether the read is complete (i.e., buffer can be extracted) */
-	read_buffer(size_t to_read) : cursor_(0), to_read_(to_read), buffer_(to_read_) {}
+	read_buffer(size_t to_read) : cursor_(0), to_read_(to_read), buffer_(to_read_) {
+		assert(buffer_.allocated());
+	}
 	std::pair<int,bool> do_read(int fd); /* will read to_read_ bytes */
 	std::pair<int,bool> do_read(int fd, size_t size); /* will read size bytes */
    void to_read(size_t);

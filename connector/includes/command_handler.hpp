@@ -90,6 +90,7 @@ struct handler_equal {
 typedef std::unordered_set<handler*, handler_hashfunc, handler_equal> handler_set;
 /* since I have to work with libev, hard to get away from raw pointers */
 extern handler_set g_active_handlers;
+extern handler_set g_inactive_handlers;
 
 
 

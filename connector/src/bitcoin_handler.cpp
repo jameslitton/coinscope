@@ -17,6 +17,7 @@ using namespace std;
 namespace bitcoin {
 
 handler_map g_active_handlers;
+handler_set g_inactive_handlers;
 
 uint32_t handler::id_pool = 0;
 
@@ -57,6 +58,10 @@ void accept_handler::io_cb(ev::io &watcher, int /*revents*/) {
 	   since libev doesn't use them makes it hard */
 	handler *h(new handler(client, RECV_VERSION_REPLY_HDR, addr.sin_addr, addr.sin_port, local_addr, local_port));
 	g_active_handlers.insert(make_pair(h->get_id(), h));
+	for(auto it = g_inactive_handlers.begin(); it != g_inactive_handlers.end(); ++it) {
+		delete *it;
+	}
+	g_inactive_handlers.clear();
 }
 
 handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_t a_remote_port, in_addr a_local_addr, uint16_t a_local_port) 
@@ -143,7 +148,8 @@ void handler::suicide() {
 	close(io.fd);
 	io.fd = -1;
 	g_active_handlers.erase(id);
-	delete this;
+	g_inactive_handlers.insert(this);
+	//delete this; See commend in command_handler.cpp 
 }
 
 void handler::append_for_write(const struct packed_message *m) {
@@ -196,11 +202,17 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 		if (!read_queue.hungry()) { /* all read up */
 			wrapped_buffer<uint8_t> readbuf(read_queue.extract_buffer());
 
+			assert(readbuf.allocated() >= sizeof(struct packed_message));
+			const struct packed_message *msg = (struct packed_message *) readbuf.const_ptr();
+			if (!(state & (RECV_HEADER|RECV_VERSION_INIT_HDR|RECV_VERSION_REPLY_HDR))) {
+				assert(readbuf.allocated() >= sizeof(struct packed_message) + msg->length);
+			}
+
 			/* item needs to be handled */
 			switch(state & RECV_MASK) {
 			case RECV_HEADER:
 				/* interpret data as message header and get length, reset remaining */ 
-				read_queue.to_read(((const struct packed_message*) readbuf.const_ptr())->length);
+				read_queue.to_read(msg->length);
 				if (!read_queue.hungry()) { /* payload is packed message */
 					handle_message_recv((const struct packed_message*) readbuf.const_ptr());
 					read_queue.cursor(0);
@@ -210,23 +222,28 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 				}
 				break;
 			case RECV_PAYLOAD:
-				handle_message_recv((const struct packed_message*) readbuf.const_ptr());
+				handle_message_recv(msg);
 				read_queue.cursor(0);
 				read_queue.to_read(sizeof(struct packed_message));
 				state = (state & SEND_MASK) | RECV_HEADER;
 				break;
+			case RECV_VERSION_INIT_HDR:
+				read_queue.to_read(msg->length);
+				state = (state & SEND_MASK) | RECV_VERSION_INIT;
+				break;
 			case RECV_VERSION_INIT: // we initiated handshake, we expect ack
 				// next message should be zero length header with verack command
-				g_log<BITCOIN_MSG>(id, false, (const struct packed_message*) readbuf.const_ptr());
+				g_log<BITCOIN_MSG>(id, false, msg);
 				state = (state & SEND_MASK) | RECV_HEADER;
+				read_queue.cursor(0);
 				read_queue.to_read(sizeof(struct packed_message));
 				break;
 			case RECV_VERSION_REPLY_HDR: // they initiated the handshake, but we've only read the header
-				read_queue.to_read(((const struct packed_message*) readbuf.const_ptr())->length);
+				read_queue.to_read(msg->length);
 				state = (state & SEND_MASK) | RECV_VERSION_REPLY;
 				break;
 			case RECV_VERSION_REPLY: // they initiated handshake, send our version and verack
-				g_log<BITCOIN_MSG>(id, false, (const struct packed_message*)readbuf.const_ptr());
+				g_log<BITCOIN_MSG>(id, false, msg);
 				read_queue.cursor(0);
 				read_queue.to_read(sizeof(struct packed_message));
 					
@@ -262,7 +279,9 @@ void handler::do_write(ev::io &watcher, int /*revents*/) {
 	if (write_queue.to_write() == 0) {
 		switch(state & SEND_MASK) {
 		case SEND_VERSION_INIT:
-			state = RECV_VERSION_INIT;
+			state = RECV_VERSION_INIT_HDR;
+			assert(read_queue.to_read() == 0);
+			read_queue.to_read(sizeof(struct packed_message)); 
 			break;
 		default:
 			/* we actually do no special handling here so we can

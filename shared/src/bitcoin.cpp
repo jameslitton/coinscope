@@ -18,6 +18,7 @@ using namespace std;
 
 namespace bitcoin {
 
+int32_t g_last_block(0);
 
 uint8_t get_varint_size(const uint8_t *bytes) {
 	uint8_t rv(0);
@@ -125,7 +126,10 @@ struct combined_version get_version(const string &user_agent,
 
 	/* copy bitcoinified user agent */
 	copy(bitcoin_agent.cbegin(), bitcoin_agent.cend(), rv.user_agent());
-	rv.start_height(cfg->lookup("connector.bitcoin.start_height"));
+	if (!g_last_block) {
+		g_last_block = cfg->lookup("connector.bitcoin.start_height");
+	}
+	rv.start_height(g_last_block);
 	rv.relay(true);
 	return rv;
 }
