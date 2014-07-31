@@ -20,6 +20,7 @@ namespace bc = bitcoin;
 namespace ctrl {
 
 handler_set g_active_handlers;
+handler_set g_inactive_handlers;
 
 uint32_t handler::id_pool = 0;
 
@@ -212,7 +213,13 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 				close(io.fd);
 				io.fd = -1;
 				g_active_handlers.erase(this);
-				delete this;
+				g_inactive_handlers.insert(this);
+				//delete this; This was in the examples, but makes
+				//valgrind warn because it still gets referenced by libev
+				//before the handler loop completes (my guess is to just
+				//remove it from a list). Still, I move it and it gets
+				//collected next time someone connects. We'll see if that
+				//quiets valgrind.
 				return;
 			}
 		}
@@ -287,7 +294,6 @@ accept_handler::~accept_handler() {
 	close(io.fd);
 }
 
-
 void accept_handler::io_cb(ev::io &watcher, int /* revents */) {
 	struct sockaddr addr = {0, {0}};
 	socklen_t len(0);
@@ -312,6 +318,10 @@ void accept_handler::io_cb(ev::io &watcher, int /* revents */) {
 	}
 
 	g_active_handlers.insert(new handler(client));
+	for(auto it = g_inactive_handlers.begin(); it != g_inactive_handlers.end(); ++it) {
+		delete *it;
+	}
+	g_inactive_handlers.clear();
 }
 
 };

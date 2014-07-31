@@ -118,7 +118,7 @@ void mmap_buffer<T>::realloc(size_type new_elt_cnt) {
 
 	} else { /* time to COW */
 		mmap_buffer<T> tmp(new_elt_cnt);
-		size_type n = std::min(new_elt_cnt * sizeof(POD_T), allocated_);
+		size_type n = std::min(tmp.allocated(), allocated_);
 		memcpy(tmp.ptr(), buffer_, n);
 		*this = tmp;
 	}

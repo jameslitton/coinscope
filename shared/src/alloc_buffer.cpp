@@ -11,14 +11,12 @@
 
 #include "alloc_buffer.hpp"
 
-
-#include <iostream>
-
 using namespace std;
 
 
 template <typename T> 
-alloc_buffer<T>::alloc_buffer() : alloc_buffer(0) {}
+alloc_buffer<T>::alloc_buffer() : alloc_buffer(0) {
+}
 
 template <typename T> 
 alloc_buffer<T>::alloc_buffer(size_type initial_elements) 
@@ -30,6 +28,7 @@ alloc_buffer<T>::alloc_buffer(size_type initial_elements)
 	if (buffer_ == nullptr) {
 		throw runtime_error(string(" failure: ") + strerror(errno));
 	}
+	memset(buffer_, 0, allocated_);
 }
 
 template <typename T> 
@@ -51,7 +50,6 @@ alloc_buffer<T>::alloc_buffer(alloc_buffer &&moved)
 	moved.refcount_ = nullptr;
 	moved.buffer_ = nullptr;
 	moved.allocated_ = 0;
-
 }
 
 template <typename T> 
@@ -101,6 +99,10 @@ void alloc_buffer<T>::realloc(size_type new_elt_cnt) {
 		if (newbuf == nullptr) {
 			throw std::runtime_error(string("realloc failure: ") + strerror(errno));
 		}
+		if (size > allocated_) {
+			memset(newbuf + allocated_, 0, size - allocated_);
+		}
+
 		/* NOTE: keep iterators as offset from buffer */
 		buffer_ = newbuf;
 		allocated_ = size;
@@ -108,12 +110,17 @@ void alloc_buffer<T>::realloc(size_type new_elt_cnt) {
 
 	} else { /* time to COW */
 
-		alloc_buffer<T> tmp(size);
-		size_type n = std::min(size, allocated_);
+		alloc_buffer<T> tmp(new_elt_cnt);
+		size_type n = std::min(tmp.allocated_, allocated_);
+		if (n < tmp.allocated_) {
+			memset(tmp.ptr() + n, 0, tmp.allocated_ - n);
+		}
 		memcpy(tmp.ptr(), buffer_, n);
+
 		*this = tmp;
 	}
 
+	assert(allocated_ == size);
 }
 
 

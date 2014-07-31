@@ -12,7 +12,9 @@ pair<int,bool> read_buffer::do_read(int fd, size_t size) {
 	if (size > to_read_) {
 		throw invalid_argument("size too large for do_read");
 	}
+	assert(buffer_.allocated());
 	buffer_.realloc(cursor_ + size);
+	assert(buffer_.allocated() >= cursor_ + size);
 	rv.first = recv(fd, buffer_.ptr() + cursor_, size, 0);
 	if (rv.first > 0) {
 		cursor_ += rv.first;
@@ -45,5 +47,6 @@ size_t read_buffer::cursor() const {
 bool read_buffer::hungry() const { return to_read() > 0; }
 
 wrapped_buffer<uint8_t> read_buffer::extract_buffer() {
+	assert(buffer_.allocated());
 	return buffer_;
 }
