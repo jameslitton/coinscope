@@ -41,11 +41,9 @@ private:
 
 	write_buffer write_queue; /* application wants this written out across network */
 
-	in_addr remote_addr;
-	uint16_t remote_port;
+	struct sockaddr_in remote_addr;
 
-	in_addr local_addr; /* address we connected on */
-	uint16_t local_port;
+	struct sockaddr_in local_addr; /* address we connected on (TODO) */
 
 	uint32_t timestamp;
 
@@ -57,14 +55,12 @@ private:
 	static uint32_t id_pool;
 
 public:
-	handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_t a_remote_port,
-	        in_addr a_local_addr, uint16_t a_local_port);
+	handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_addr, const struct sockaddr_in &a_local_addr);
 	~handler();
 	uint32_t get_id() const { return id; }
 	void handle_message_recv(const struct packed_message *msg);
 	void io_cb(ev::io &watcher, int revents);
-	struct in_addr get_remote_addr() const { return remote_addr; }
-	uint16_t get_remote_port() const { return remote_port; }
+	struct sockaddr_in get_remote_addr() const { return remote_addr; }
 	/* appends message, leaves write queue unseeked, but increments to_write. */
 	void append_for_write(const struct packed_message *m);
 	void append_for_write(std::unique_ptr<struct packed_message> m);
@@ -105,12 +101,11 @@ extern handler_set g_inactive_handlers;
 
 class accept_handler {
 public:
-	accept_handler(int fd, struct in_addr a_local_addr, uint16_t a_local_port); /* fd should be a listening, non-blocking socket */
+	accept_handler(int fd, const struct sockaddr_in &a_local_addr); /* fd should be a listening, non-blocking socket */
 	void io_cb(ev::io &watcher, int revents);
 	~accept_handler();
 private:
-	struct in_addr local_addr; /* left in network byte order */
-	uint16_t local_port;
+	struct sockaddr_in local_addr; /* left in network byte order */
 	ev::io io;
 	accept_handler & operator=(accept_handler other);
 	accept_handler(const accept_handler &);

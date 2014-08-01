@@ -36,13 +36,13 @@ uint8_t get_varint_size(const uint8_t *bytes) {
 	return rv;
 }
 
-void set_address(struct version_packed_net_addr *dest, struct in_addr src, uint16_t port) {
+void set_address(struct version_packed_net_addr *dest, const struct sockaddr_in &src) {
 	dest->services = SERVICES;
 	bzero(dest->addr.ipv4.padding, 12);
 	dest->addr.ipv4.padding[10] = 0xFF;
 	dest->addr.ipv4.padding[11] = 0xFF;
-	dest->addr.ipv4.as.number = src.s_addr;
-	dest->port = port;
+	dest->addr.ipv4.as.number = src.sin_addr.s_addr;
+	dest->port = src.sin_port;
 }
 
 uint64_t get_varint(const uint8_t *buf) {
@@ -110,8 +110,8 @@ vector<uint8_t> get_inv(const vector<inv_vector> &v) {
 }
 
 struct combined_version get_version(const string &user_agent,
-                                    struct in_addr from, uint16_t from_port,
-                                    struct in_addr recv, uint16_t recv_port) {
+                                    const struct sockaddr_in &from_addr,
+                                    const struct sockaddr_in &recv_addr) {
 	static const libconfig::Config *cfg(get_config());
 
 
@@ -120,8 +120,8 @@ struct combined_version get_version(const string &user_agent,
 	rv.version(MAX_VERSION);
 	rv.services(SERVICES);
 	rv.timestamp(time(NULL));
-	set_address(&rv.prefix->recv, recv, recv_port);
-	set_address(&rv.prefix->from, from, from_port);
+	set_address(&rv.prefix->recv, recv_addr);
+	set_address(&rv.prefix->from, from_addr);
 	rv.nonce(nonce_gen64());
 
 	/* copy bitcoinified user agent */

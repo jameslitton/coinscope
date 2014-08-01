@@ -21,8 +21,8 @@ handler_set g_inactive_handlers;
 
 uint32_t handler::id_pool = 0;
 
-accept_handler::accept_handler(int fd, struct in_addr a_local_addr, uint16_t a_local_port) 
-	: local_addr(a_local_addr), local_port(a_local_port), io()
+accept_handler::accept_handler(int fd, const struct sockaddr_in &a_local_addr)
+	: local_addr(a_local_addr), io()
 {
 	g_log<DEBUG>("bitcoin accept initializer initiated, awaiting incoming client connections");
 	io.set<accept_handler, &accept_handler::io_cb>(this);
@@ -56,7 +56,7 @@ void accept_handler::io_cb(ev::io &watcher, int /*revents*/) {
 
 	/* TODO: if can be converted to smarter pointers sensibly, consider, but
 	   since libev doesn't use them makes it hard */
-	handler *h(new handler(client, RECV_VERSION_REPLY_HDR, addr.sin_addr, addr.sin_port, local_addr, local_port));
+	handler *h(new handler(client, RECV_VERSION_REPLY_HDR, addr, local_addr));
 	g_active_handlers.insert(make_pair(h->get_id(), h));
 	for(auto it = g_inactive_handlers.begin(); it != g_inactive_handlers.end(); ++it) {
 		delete *it;
@@ -64,11 +64,11 @@ void accept_handler::io_cb(ev::io &watcher, int /*revents*/) {
 	g_inactive_handlers.clear();
 }
 
-handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_t a_remote_port, in_addr a_local_addr, uint16_t a_local_port) 
+handler::handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_addr, const struct sockaddr_in &a_local_addr) 
 	: read_queue(0),
 	  write_queue(),
-	  remote_addr(a_remote_addr), remote_port(a_remote_port),
-	  local_addr(a_local_addr), local_port(a_local_port), 
+	  remote_addr(a_remote_addr),
+	  local_addr(a_local_addr),
 	  timestamp(time(NULL)),
 	  state(a_state), 
 	  io(),
@@ -81,8 +81,8 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 	ostringstream oss;
 	
 	oss << "Initiating handler with state " << state << " on " 
-	    << local_str << ":" << ntoh(a_local_port) 
-	    << " with " << remote_str << ":" << ntoh(a_remote_port) 
+	    << local_str << ":" << ntoh(local_addr.sin_port) 
+	    << " with " << remote_str << ":" << ntoh(remote_addr.sin_port) 
 	    << " with id " << id << endl;
 	g_log<BITCOIN>(oss.str());
 
@@ -90,7 +90,7 @@ handler::handler(int fd, uint32_t a_state, struct in_addr a_remote_addr, uint16_
 	if (a_state == SEND_VERSION_INIT) {
 		io.set(fd, ev::WRITE);
 		/* TODO: profile to see if extra copies are worth optimizing away */
-		struct combined_version vers(get_version(USER_AGENT, local_addr, local_port, remote_addr, remote_port));
+		struct combined_version vers(get_version(USER_AGENT, local_addr, remote_addr));
 		unique_ptr<struct packed_message> m(get_message("version", vers.as_buffer(), vers.size));
 		g_log<BITCOIN_MSG>(id, true, m.get());
 		write_queue.append((const uint8_t *) m.get(), m->length + sizeof(*m));
@@ -126,7 +126,7 @@ void handler::handle_message_recv(const struct packed_message *msg) {
 
 			*((uint32_t*) buf) = rand.timestamp;
 			buf += 4;
-			set_address((struct version_packed_net_addr *)(buf), rand.remote_addr, rand.remote_port);
+			set_address((struct version_packed_net_addr *)(buf), rand.remote_addr);
 			append_for_write(get_message("addr", payload.data(), total_size));
 		}
 		
@@ -247,7 +247,7 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 				read_queue.cursor(0);
 				read_queue.to_read(sizeof(struct packed_message));
 					
-				struct combined_version vers(get_version(USER_AGENT, remote_addr, remote_port, local_addr, local_port));
+				struct combined_version vers(get_version(USER_AGENT, remote_addr, local_addr));
 				unique_ptr<struct packed_message> vmsg(get_message("version", vers.as_buffer(), vers.size));
 
 				append_for_write(move(vmsg));
