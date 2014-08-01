@@ -53,20 +53,23 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 
 	if (msg->command == COMMAND_GET_CXN) {
 		g_log<CTRL>("All connections requested", regid);
-		/* format is 32 bit id (network byte order), struct version_packed_net_addr */
-		uint8_t buffer[sizeof(uint32_t) + sizeof(struct bc::version_packed_net_addr)];
+		/* format is struct connection_info */
+
+		wrapped_buffer<uint8_t> buffer;
+		buffer.realloc(bc::g_active_handlers.size() * sizeof(struct connection_info));
+		/* I could append these piecemeal to the write_queue, but this would cause more allocations/gc. This does it as one big chunk in the list,
+		   which for an active connector should be one mmapped
+		   segment */
+		uint8_t *writebuf = buffer.ptr();
 		for(bc::handler_map::const_iterator it = bc::g_active_handlers.cbegin(); it != bc::g_active_handlers.cend(); ++it) {
-			uint32_t nid = hton(it->first);
-			memcpy(buffer, &nid, sizeof(nid));
-			struct bc::version_packed_net_addr remote;
-			remote.addr.ipv4.as.in_addr = it->second->get_remote_addr().sin_addr;
-			remote.addr.ipv4.padding[10] = remote.addr.ipv4.padding[11] = 0xFF;
-			remote.port = it->second->get_remote_addr().sin_port;
-			memcpy(buffer+sizeof(nid), &remote, sizeof(remote));
+			struct connection_info out;
+			out.handle_id = hton(it->first);
+			out.remote_addr = it->second->get_remote_addr();
+			out.local_addr = it->second->get_local_addr();
+			memcpy(writebuf, &out, sizeof(out));
+			writebuf += sizeof(out);
 		}
-		out.reserve(sizeof(buffer));
-		copy(buffer, buffer + sizeof(buffer), back_inserter(out));
-		write_queue.append(out.data(), out.size());
+		write_queue.append(writebuf, bc::g_active_handlers.size() * sizeof(struct connection_info));
 		state |= SEND_MESSAGE;
 	} else if (msg->command == COMMAND_SEND_MSG) {
 		uint32_t message_id = ntoh(msg->message_id);
@@ -181,6 +184,11 @@ void handler::receive_payload() {
 			} catch (network_error &e) {
 				g_log<ERROR>(e.what(), "(command_handler)");
 			}
+
+			/* send back connect_response */
+			struct connect_response response;
+			bzero(&response, sizeof(response));
+
 			if (fd >= 0) {
 				struct sockaddr_in local;
 				bzero(&local,sizeof(local));
@@ -189,7 +197,20 @@ void handler::receive_payload() {
 				memcpy(&local.sin_addr, &payload->local.addr.ipv4.as.bytes, sizeof(struct in_addr));
 				bc::handler *h = new bc::handler(fd, bc::SEND_VERSION_INIT, addr, local);
 				bc::g_active_handlers.insert(make_pair(h->get_id(), h));
+				
+				response.result = 0;
+				response.registration_id = hton(regid);
+				response.info.handle_id = hton(h->get_id());
+				response.info.remote_addr = addr;
+				response.info.local_addr = local;
+				
+			} else {
+				response.result = hton((int32_t)errno);
 			}
+
+			write_queue.append((uint8_t*)&response, sizeof(response));
+			state |= SEND_MESSAGE;
+
 		}
 		break;
 	default:

@@ -20,6 +20,7 @@
 #include "command_structures.hpp"
 #include "bitcoin.hpp"
 #include "config.hpp"
+#include "logger.hpp"
 
 /* This is a simple test client to demonstrate use of the connector */
 
@@ -70,6 +71,20 @@ int main(int argc, char *argv[]) {
 		perror("write");
 		return EXIT_FAILURE;
 	}
+
+	struct connect_response response;
+	if (recv(sock, &response, sizeof(response), MSG_WAITALL) != sizeof(response)) {
+		perror("read");
+		return EXIT_FAILURE;
+	}
+
+	cout << "Got a response, here it is: " << endl;
+
+	cout << "\tResult: " << ntoh(response.result) << endl;
+	cout << "\tRegistration ID: " << ntoh(response.registration_id) << endl;
+	cout << "\tHandle ID: " << ntoh(response.info.handle_id) << endl;
+	cout << "\tremote: " << *((struct sockaddr*)&response.info.remote_addr) << endl;
+	cout << "\tlocal: " << *((struct sockaddr*)&response.info.local_addr) << endl;
 	
 	
 	return EXIT_SUCCESS;
