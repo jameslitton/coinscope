@@ -43,11 +43,19 @@ struct connect_payload {
 	struct bitcoin::version_packed_net_addr local; 
 }__attribute__((packed));
 
-struct connect_response {
-	
+struct connection_info { /* response to COMMAND_GET_CXN && part of response for CONNECT command */
+	uint32_t handle_id;
+	struct sockaddr_in remote_addr;
+	struct sockaddr_in local_addr;
 } __attribute__((packed));
 
-
+struct connect_response {
+	int32_t result; /* this is zero on success, or errno on failure, Network byte order */
+	uint32_t registration_id; /* id of the agent connection is made for (should be the sender/redundant) NBO */
+	struct connection_info info;
+} __attribute__((packed));
+	
+	
 
 struct command_msg {
 	uint8_t command;

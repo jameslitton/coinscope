@@ -61,6 +61,7 @@ public:
 	void handle_message_recv(const struct packed_message *msg);
 	void io_cb(ev::io &watcher, int revents);
 	struct sockaddr_in get_remote_addr() const { return remote_addr; }
+	struct sockaddr_in get_local_addr() const { return local_addr; }
 	/* appends message, leaves write queue unseeked, but increments to_write. */
 	void append_for_write(const struct packed_message *m);
 	void append_for_write(std::unique_ptr<struct packed_message> m);

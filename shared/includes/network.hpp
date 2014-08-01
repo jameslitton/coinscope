@@ -5,12 +5,20 @@
 #include <string>
 
 
+inline int32_t hton(int32_t x) {
+	return htobe32(x);
+}
+
 inline uint32_t hton(uint32_t x) {
 	return htobe32(x);
 }
 
 inline uint16_t hton(uint16_t x) {
 	return htobe16(x);
+}
+
+inline int32_t ntoh(int32_t x) {
+	return be32toh(x);
 }
 
 inline uint32_t ntoh(uint32_t x) {
