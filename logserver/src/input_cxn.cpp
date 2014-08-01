@@ -56,7 +56,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 				}
 				if (r == 0) { /* got disconnected! */
 					/* LOG disconnect */
-					cerr << "Remote disconnect";
+					cerr << "Remote disconnect\n";
 					suicide();
 					return;
 				}
