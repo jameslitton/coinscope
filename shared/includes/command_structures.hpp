@@ -38,9 +38,8 @@ struct register_msg {
 };
 
 struct connect_payload { 
-	struct bitcoin::version_packed_net_addr remote;
-	/* this should probably be decided by the connector */
-	struct bitcoin::version_packed_net_addr local; 
+	struct sockaddr_in remote_addr;
+	struct sockaddr_in local_addr;  /* see comment in command_handler. setting this currently does nothing */
 }__attribute__((packed));
 
 struct connection_info { /* response to COMMAND_GET_CXN && part of response for CONNECT command */

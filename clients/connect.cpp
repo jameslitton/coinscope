@@ -51,18 +51,22 @@ int main(int argc, char *argv[]) {
 	struct connect_message message = { 0, hton((uint32_t)sizeof(connect_payload)), CONNECT, {{0},{0}} };
 #pragma GCC diagnostic warning "-Wmissing-field-initializers"
 
-	if (inet_pton(AF_INET, "127.0.0.1", &message.payload.remote.addr.ipv4.as.in_addr) != 1) {
+	
+
+	message.payload.remote_addr.sin_family = AF_INET;
+	if (inet_pton(AF_INET, "127.0.0.1", &message.payload.remote_addr.sin_addr) != 1) {
 		perror("inet_pton destination");
 		return EXIT_FAILURE;
 	}
 
-	if (inet_pton(AF_INET, "127.0.0.1", &message.payload.local.addr.ipv4.as.in_addr) != 1) {
+	message.payload.local_addr.sin_family = AF_INET;
+	if (inet_pton(AF_INET, "127.0.0.1", &message.payload.local_addr.sin_addr) != 1) {
 		perror("inet_pton source");
 		return EXIT_FAILURE;
 	}
 
-	message.payload.remote.port = hton(static_cast<uint16_t>(8333));
-	message.payload.local.port = hton(static_cast<uint16_t>(0xdead));
+	message.payload.remote_addr.sin_port = hton(static_cast<uint16_t>(8333));
+	message.payload.local_addr.sin_port = hton(static_cast<uint16_t>(0xdead));
 
 	cout << hton((uint32_t)sizeof(connect_payload)) << endl;
 	cout << ntoh(message.length) << endl;

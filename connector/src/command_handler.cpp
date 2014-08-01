@@ -171,16 +171,11 @@ void handler::receive_payload() {
 			g_log<CTRL>("Attempting to connect for", regid);
 
 			int fd(-1);
-			struct sockaddr_in addr;
 			try {
 				// TODO: setting local on the client does nothing, but could specify the interface used
 				fd = Socket(AF_INET, SOCK_STREAM, 0);
 				/* This socket is NOT non-blocking. Is this an issue in building up connections? */
-				bzero(&addr,sizeof(addr));
-				addr.sin_family = AF_INET;
-				addr.sin_port = payload->remote.port; 
-				memcpy(&addr.sin_addr, &payload->remote.addr.ipv4.as.bytes, sizeof(struct in_addr));
-				Connect(fd, (struct sockaddr*)&addr, sizeof(addr));
+				Connect(fd, (struct sockaddr*)&payload->remote_addr, sizeof(payload->remote_addr));
 				fcntl(fd, F_SETFL, O_NONBLOCK);
 			} catch (network_error &e) {
 				g_log<ERROR>(e.what(), "(command_handler)");
@@ -196,11 +191,9 @@ void handler::receive_payload() {
 				bzero(&local,sizeof(local));
 				if (getsockname(fd, (struct sockaddr*) &local, &len) != 0) {
 					g_log<ERROR>(strerror(errno));
-					local.sin_family = AF_INET;
-					local.sin_port = payload->local.port;
-					memcpy(&local.sin_addr, &payload->local.addr.ipv4.as.bytes, sizeof(struct in_addr));
+					memcpy(&local, &payload->local_addr, sizeof(local));
 				} 
-				bc::handler *h = new bc::handler(fd, bc::SEND_VERSION_INIT, addr, local);
+				bc::handler *h = new bc::handler(fd, bc::SEND_VERSION_INIT, payload->remote_addr, local);
 				bc::g_active_handlers.insert(make_pair(h->get_id(), h));
 
 				
@@ -208,7 +201,7 @@ void handler::receive_payload() {
 				response.result = 0;
 				response.registration_id = hton(regid);
 				response.info.handle_id = hton(h->get_id());
-				response.info.remote_addr = addr;
+				response.info.remote_addr = payload->remote_addr;
 				response.info.local_addr = local;
 				
 			} else {
