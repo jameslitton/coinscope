@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	if (inet_pton(AF_INET, "127.0.0.1", &message.payload.remote.addr.ipv4.as.in_addr) != 1) {
+	if (inet_pton(AF_INET, "127.0.0.1", &message.payload.local.addr.ipv4.as.in_addr) != 1) {
 		perror("inet_pton source");
 		return EXIT_FAILURE;
 	}

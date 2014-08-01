@@ -58,9 +58,9 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 			uint32_t nid = hton(it->first);
 			memcpy(buffer, &nid, sizeof(nid));
 			struct bc::version_packed_net_addr remote;
-			remote.addr.ipv4.as.in_addr = it->second->get_remote_addr();
+			remote.addr.ipv4.as.in_addr = it->second->get_remote_addr().sin_addr;
 			remote.addr.ipv4.padding[10] = remote.addr.ipv4.padding[11] = 0xFF;
-			remote.port = it->second->get_remote_port();
+			remote.port = it->second->get_remote_addr().sin_port;
 			memcpy(buffer+sizeof(nid), &remote, sizeof(remote));
 		}
 		out.reserve(sizeof(buffer));
@@ -181,7 +181,12 @@ void handler::receive_payload() {
 				g_log<ERROR>(e.what(), "(command_handler)");
 			}
 			if (fd >= 0) {
-				bc::handler *h = new bc::handler(fd, bc::SEND_VERSION_INIT, addr.sin_addr, addr.sin_port, payload->local.addr.ipv4.as.in_addr, payload->local.port);
+				struct sockaddr_in local;
+				bzero(&local,sizeof(local));
+				local.sin_family = AF_INET;
+				local.sin_port = payload->local.port;
+				memcpy(&local.sin_addr, &payload->local.addr.ipv4.as.bytes, sizeof(struct in_addr));
+				bc::handler *h = new bc::handler(fd, bc::SEND_VERSION_INIT, addr, local);
 				bc::g_active_handlers.insert(make_pair(h->get_id(), h));
 			}
 		}

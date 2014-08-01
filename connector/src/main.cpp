@@ -107,7 +107,7 @@ int main(int argc, const char *argv[]) {
 		Bind(bitcoin_sock, (struct sockaddr*)&bitcoin_addr, sizeof(bitcoin_addr));
 		Listen(bitcoin_sock, backlog);
 
-		bc_accept_handlers.emplace_back(new bc::accept_handler(bitcoin_sock, bitcoin_addr.sin_addr, bitcoin_addr.sin_port));
+		bc_accept_handlers.emplace_back(new bc::accept_handler(bitcoin_sock, bitcoin_addr));
 
 	}
 

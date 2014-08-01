@@ -43,6 +43,10 @@ struct connect_payload {
 	struct bitcoin::version_packed_net_addr local; 
 }__attribute__((packed));
 
+struct connect_response {
+	
+} __attribute__((packed));
+
 
 
 struct command_msg {
