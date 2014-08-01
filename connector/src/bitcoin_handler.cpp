@@ -74,16 +74,11 @@ handler::handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_ad
 	  io(),
 	  id(id_pool++) 
 {
-	char local_str[16];
-	char remote_str[16];
-	inet_ntop(AF_INET, &a_remote_addr, remote_str, sizeof(remote_str));
-	inet_ntop(AF_INET, &a_local_addr, local_str, sizeof(local_str));
+
 	ostringstream oss;
 	
-	oss << "Initiating handler with state " << state << " on " 
-	    << local_str << ":" << ntoh(local_addr.sin_port) 
-	    << " with " << remote_str << ":" << ntoh(remote_addr.sin_port) 
-	    << " with id " << id << endl;
+	oss << "Initiating handler with state " << state << " on " << *((struct sockaddr*)&local_addr)
+	    << " with " << *((struct sockaddr*)&remote_addr) << " with id " << id << endl;
 	g_log<BITCOIN>(oss.str());
 
 	io.set<handler, &handler::io_cb>(this);
