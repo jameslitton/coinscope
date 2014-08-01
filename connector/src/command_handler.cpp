@@ -72,6 +72,7 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 		state |= SEND_MESSAGE;
 	} else if (msg->command == COMMAND_SEND_MSG) {
 		uint32_t message_id = ntoh(msg->message_id);
+		g_log<DEBUG>("Attempting to send command message", message_id);
 		auto it = g_messages.find(message_id);
 		if (it == g_messages.end()) {
 			g_log<ERROR>("invalid message id", message_id);
@@ -88,10 +89,14 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 					bc::handler_map::iterator hit = bc::g_active_handlers.find(target);
 					if (hit != bc::g_active_handlers.end()) {
 						hit->second->append_for_write(packed.get());
+					} else {
+						g_log<DEBUG>("Attempting to send command message", message_id, "to non-existant target", target);
 					}
 				}
 			}
 		}
+	} else {
+		g_log<CTRL>("UNKNOWN COMMAND_MSG COMMAND: ", msg->command);
 	}
 }
 
@@ -99,7 +104,8 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 
 void handler::receive_header() {
 	/* interpret data as message header and get length, reset remaining */ 
-	const struct message *msg = (const struct message*) ((const uint8_t*) read_queue);
+	wrapped_buffer<uint8_t> readbuf = read_queue.extract_buffer();
+	const struct message *msg = (const struct message*) readbuf.const_ptr();
 	read_queue.to_read(ntoh(msg->length));
 	if (msg->version != 0) {
 		g_log<DEBUG>("Warning: Unsupported version");
@@ -132,7 +138,8 @@ void handler::receive_header() {
 }
 
 void handler::receive_payload() {
-	const struct message *msg = (const struct message*) ((const uint8_t*)read_queue);
+	wrapped_buffer<uint8_t> readbuf = read_queue.extract_buffer();
+	const struct message *msg = (const struct message*) readbuf.const_ptr();
 
 	if (msg->version != 0) {
 		g_log<DEBUG>("Warning: unsupported version. Attempting to receive payload");
@@ -159,8 +166,9 @@ void handler::receive_payload() {
 		}
 		break;
 	case COMMAND:
+		cerr << "Trying to do command message\n";
 		handle_message_recv((struct command_msg*) msg->payload);
-		state = (state & SEND_MASK) | RECV_HEADER;
+		state = (state & SEND_MASK);
 		break;
 	case CONNECT:
 		{
@@ -177,7 +185,12 @@ void handler::receive_payload() {
 				Connect(fd, (struct sockaddr*)&payload->remote_addr, sizeof(payload->remote_addr));
 				fcntl(fd, F_SETFL, O_NONBLOCK);
 			} catch (network_error &e) {
-				g_log<ERROR>(e.what(), "(command_handler)");
+				if (fd >= 0) {
+					close(fd);
+					fd = -1;
+				}
+
+				g_log<ERROR>(e.what(), "(command_handler CONNECT)");
 			}
 
 			/* send back connect_response */
@@ -194,8 +207,6 @@ void handler::receive_payload() {
 				} 
 				bc::handler *h = new bc::handler(fd, bc::SEND_VERSION_INIT, payload->remote_addr, local);
 				bc::g_active_handlers.insert(make_pair(h->get_id(), h));
-
-				
 				
 				response.result = 0;
 				response.registration_id = hton(regid);
@@ -254,9 +265,11 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 			/* item needs to be handled */
 			switch(state & RECV_MASK) {
 			case RECV_HEADER:
+				cerr << "Receiving header...\n";
 				receive_header();
 				break;
 			case RECV_PAYLOAD:
+				cerr << "Receiving payload...\n";
 				receive_payload();
 				break;
 			default:
@@ -290,6 +303,9 @@ void handler::io_cb(ev::io &watcher, int revents) {
 	if ((state & RECV_MASK) && (revents & ev::READ)) {
 		do_read(watcher, revents);
 	}
+
+	assert(read_queue.to_read() != 0);
+	assert(state & RECV_MASK);
          
 	if (revents & ev::WRITE) {
 		do_write(watcher, revents);

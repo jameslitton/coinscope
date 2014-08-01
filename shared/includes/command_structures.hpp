@@ -33,9 +33,8 @@ struct message {
 	uint8_t payload[0];
 } __attribute__((packed));
 
-struct register_msg {
-	struct message msg; /* returns new id */
-};
+/* register_msg returns new id */
+typedef message register_msg; 
 
 struct connect_payload { 
 	struct sockaddr_in remote_addr;
