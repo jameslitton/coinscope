@@ -166,7 +166,6 @@ void handler::receive_payload() {
 		}
 		break;
 	case COMMAND:
-		cerr << "Trying to do command message\n";
 		handle_message_recv((struct command_msg*) msg->payload);
 		state = (state & SEND_MASK);
 		break;
@@ -265,11 +264,9 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 			/* item needs to be handled */
 			switch(state & RECV_MASK) {
 			case RECV_HEADER:
-				cerr << "Receiving header...\n";
 				receive_header();
 				break;
 			case RECV_PAYLOAD:
-				cerr << "Receiving payload...\n";
 				receive_payload();
 				break;
 			default:

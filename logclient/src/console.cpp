@@ -18,7 +18,7 @@
 
 
 #include "netwrap.hpp"
-#include "iobuf.hpp"
+#include "read_buffer.hpp"
 #include "logger.hpp"
 #include "config.hpp"
 
@@ -61,12 +61,12 @@ string time_to_str(const time_t *t)  {
 }
 
 
-void print_message(iobuf &input_buf) {
-	uint8_t *buf = input_buf.raw_buffer();
+void print_message(read_buffer &input_buf) {
+	const uint8_t *buf = input_buf.extract_buffer().const_ptr();
 	enum log_type lt(static_cast<log_type>(buf[0]));
 	time_t time = ntoh(*( (uint64_t*)(buf+1)));
 	
-	uint8_t *msg = buf + 8 + 1;
+	const uint8_t *msg = buf + 8 + 1;
 
 	cout << time_to_str(&time) << ' ' << type_to_str(lt);
 
@@ -97,17 +97,13 @@ int main(int argc, char *argv[]) {
 	int client = unix_sock_client(client_dir + "all", false);
 
 	bool reading_len(true);
-	uint32_t to_read(sizeof(uint32_t));
 
-	iobuf input_buf;
+	read_buffer input_buf(sizeof(uint32_t));
 
 	while(true) {
-		input_buf.grow(to_read);
-		ssize_t r = read(client, input_buf.offset_buffer(), to_read);
-		if (r > 0) {
-			input_buf.seek(input_buf.location() + r);
-			to_read -= r;
-		} else if (r == 0) {
+		auto ret = input_buf.do_read(client);
+		int r = ret.first;
+		if (r == 0) {
 			cerr << "Disconnected\n";
 			return EXIT_SUCCESS;
 		} else if (r < 0) {
@@ -115,16 +111,16 @@ int main(int argc, char *argv[]) {
 			return EXIT_FAILURE;
 		}
 
-		if (to_read == 0) {
+		if (!input_buf.hungry()) {
 			if (reading_len) {
-				uint32_t netlen = *((uint32_t*)input_buf.raw_buffer());
-				to_read = ntoh(netlen);
-				input_buf.seek(0);
+				uint32_t netlen = *((const uint32_t*) input_buf.extract_buffer().const_ptr());
+				input_buf.cursor(0);
+				input_buf.to_read(ntoh(netlen));
 				reading_len = false;
 			} else {
 				print_message(input_buf);
-				input_buf.seek(0);
-				to_read = 4;
+				input_buf.cursor(0);
+				input_buf.to_read(4);
 				reading_len = true;
 			}
 		}

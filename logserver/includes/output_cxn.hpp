@@ -9,7 +9,7 @@
 
 #include "accept_handler.hpp"
 #include "netwrap.hpp"
-#include "iobuf.hpp"
+#include "write_buffer.hpp"
 
 namespace output_cxn {
 
@@ -17,8 +17,7 @@ class handler {
 private:
 	uint8_t interests;
 	int events;
-	iobuf write_queue; /* TODO this NEEDS to be smarter */
-	size_t to_write;
+	write_buffer write_queue;
 	ev::io io;
 public:
 	handler(int fd, uint8_t interests);

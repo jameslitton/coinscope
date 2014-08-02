@@ -34,7 +34,7 @@ public:
 private:
 	size_type allocated_;
 	POD_T * buffer_;
-	size_type * refcount_;
+	mutable size_type * refcount_;
 
 public:
 
@@ -119,8 +119,7 @@ public:
 
 	alloc_buffer();
 	alloc_buffer(size_type initial_allocation);
-
-	alloc_buffer(alloc_buffer &copy);
+	alloc_buffer(const alloc_buffer &copy);
 	alloc_buffer(alloc_buffer &&moved);
 	alloc_buffer & operator=(alloc_buffer other);
 	~alloc_buffer();

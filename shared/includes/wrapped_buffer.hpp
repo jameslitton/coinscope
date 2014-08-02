@@ -112,7 +112,7 @@ public:
 
 	wrapped_buffer();
 	wrapped_buffer(size_type initial_allocation);
-	wrapped_buffer(wrapped_buffer &copy);
+	wrapped_buffer(const wrapped_buffer &copy);
 	wrapped_buffer(wrapped_buffer &&moved);
 	wrapped_buffer & operator=(wrapped_buffer other);
 	~wrapped_buffer();
