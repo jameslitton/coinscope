@@ -32,7 +32,7 @@ alloc_buffer<T>::alloc_buffer(size_type initial_elements)
 }
 
 template <typename T> 
-alloc_buffer<T>::alloc_buffer(alloc_buffer &copy) 
+alloc_buffer<T>::alloc_buffer(const alloc_buffer &copy) 
 	: allocated_(copy.allocated_),
 	  buffer_(copy.buffer_),
 	  refcount_(copy.refcount_)

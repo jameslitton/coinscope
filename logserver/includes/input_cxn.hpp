@@ -5,7 +5,7 @@
 
 #include <ev++.h>
 
-#include "iobuf.hpp"
+#include "read_buffer.hpp"
 #include "netwrap.hpp"
 #include "accept_handler.hpp"
 
@@ -13,8 +13,7 @@ namespace input_cxn {
 
 class handler {
 private:
-	iobuf read_queue;
-	size_t to_read;
+	read_buffer read_queue;
 	uint32_t state;
 	ev::io io;
 

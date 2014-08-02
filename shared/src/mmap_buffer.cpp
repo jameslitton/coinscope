@@ -42,7 +42,7 @@ mmap_buffer<T>::mmap_buffer(size_type initial_elements)
 }
 
 template <typename T> 
-mmap_buffer<T>::mmap_buffer(mmap_buffer &copy) 
+mmap_buffer<T>::mmap_buffer(const mmap_buffer &copy) 
 	: allocated_(copy.allocated_),
 	  buffer_(copy.buffer_),
 	  refcount_(copy.refcount_)

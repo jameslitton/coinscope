@@ -35,7 +35,7 @@ wrapped_buffer<T>::wrapped_buffer(size_type initial_elements)
 }
 
 template <typename T> 
-wrapped_buffer<T>::wrapped_buffer(wrapped_buffer &copy) 
+wrapped_buffer<T>::wrapped_buffer(const wrapped_buffer &copy) 
 	: mbuffer_(nullptr), abuffer_(nullptr)
 {
 	if (copy.mbuffer_) {

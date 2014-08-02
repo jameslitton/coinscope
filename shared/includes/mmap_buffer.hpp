@@ -34,7 +34,7 @@ public:
 private:
 	size_type allocated_;
 	POD_T * buffer_;
-	size_type * refcount_;
+	mutable size_type * refcount_;
 
 public:
 
@@ -121,7 +121,7 @@ public:
 	mmap_buffer();
 	mmap_buffer(size_type initial_allocation);
 
-	mmap_buffer(mmap_buffer &copy);
+	mmap_buffer(const mmap_buffer &copy);
 	mmap_buffer(mmap_buffer &&moved);
 	mmap_buffer & operator=(mmap_buffer other);
 	~mmap_buffer();

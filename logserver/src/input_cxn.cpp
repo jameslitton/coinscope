@@ -32,7 +32,7 @@ void handler::handle_accept(handlers::accept_handler<handler> *, int fd) {
 
 
 handler::handler(int fd) 
-	: read_queue(), to_read(4), state(RECV_HEADER), io() {
+	: read_queue(4), state(RECV_HEADER), io() {
 	cerr << "Instantiating new input handler\n";
 	io.set<handler, &handler::io_cb>(this);
 	io.start(fd, ev::READ);
@@ -41,18 +41,14 @@ handler::handler(int fd)
 void handler::io_cb(ev::io &watcher, int revents) {
 	if (revents & ev::READ) {
 		ssize_t r(1);
-		while(r > 0) { /* do all reads we can in this event handler */
+		while(r > 0 && read_queue.hungry()) { /* do all reads we can in this event handler */
 			do {
-				read_queue.grow(read_queue.location() + to_read);
-				r = read(watcher.fd, read_queue.offset_buffer(), to_read);
+				pair<int,bool> res = read_queue.do_read(watcher.fd);
+				r = res.first;
 				if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 					cerr << "Got unexpected error on handler. " << strerror(errno);
 					suicide();
 					return;
-				}
-				if (r > 0) {
-					to_read -= r;
-					read_queue.seek(read_queue.location() + r);
 				}
 				if (r == 0) { /* got disconnected! */
 					/* LOG disconnect */
@@ -60,19 +56,19 @@ void handler::io_cb(ev::io &watcher, int revents) {
 					suicide();
 					return;
 				}
-			} while (r > 0 && to_read > 0);
+			} while (r > 0 && read_queue.to_read() > 0);
 
-			if (to_read == 0) {
+			if (!read_queue.hungry()) {
 				if (state == RECV_HEADER) {
-					to_read = ntoh(*((uint32_t*) read_queue.raw_buffer()));
-					read_queue.grow(to_read);
-					read_queue.seek(0);
+					read_queue.cursor(0);
+					read_queue.to_read(ntoh(*((const uint32_t*) read_queue.extract_buffer().const_ptr())));
 					state = RECV_LOG;
 				} else {
 					/* item needs to be handled */
-					cvector<uint8_t> p = read_queue.extract(read_queue.location()); /* read_queue just got zeroes out */
-					collector::get().append(move(p));
-					to_read = 4;
+					wrapped_buffer<uint8_t> p = read_queue.extract_buffer();
+					collector::get().append(move(p), read_queue.cursor());
+					read_queue.cursor(0);
+					read_queue.to_read(4);
 					state = RECV_HEADER;
 				}
 			}

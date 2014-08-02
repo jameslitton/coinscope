@@ -54,7 +54,7 @@ uint8_t handler::get_interests(handlers::accept_handler<handler> *h) {
 }
 
 handler::handler(int fd, uint8_t _interests) 
-	: interests(_interests), events(ev::NONE), write_queue(), to_write(0), io() {
+	: interests(_interests), events(ev::NONE), write_queue(), io() {
 	cerr << "Instantiating new output handler on fd " << fd << "\n";
 	io.set<handler, &handler::io_cb>(this);
 	io.set(fd, events);
@@ -86,8 +86,9 @@ handler::~handler() {
 void handler::io_cb(ev::io &watcher, int revents) {
 	if (revents & ev::WRITE) {
 		ssize_t r(1);
-		while (to_write && r > 0) { 
-			r = write(watcher.fd, write_queue.offset_buffer(), to_write);
+		while (write_queue.to_write() && r > 0) { 
+			pair<int,bool> res = write_queue.do_write(watcher.fd);
+			r = res.first;
 			
 			if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 				/* most probably a disconnect of some sort, log error and queue object for deletion */
@@ -95,10 +96,6 @@ void handler::io_cb(ev::io &watcher, int revents) {
 				suicide();
 				return;
 			} 
-			if (r > 0) {
-				to_write -= r;
-				write_queue.seek(write_queue.location() + r);
-			}
 
 			if (r == 0) {
 				cerr << "Disconnect\n";
@@ -107,20 +104,14 @@ void handler::io_cb(ev::io &watcher, int revents) {
 			}
 		}
 
-		if (to_write == 0) {
+		if (write_queue.to_write() == 0) {
 
-			write_queue.seek(0);
-
-			shared_ptr<cvector<uint8_t> > p = collector::get().pop(this);
-			if (p) {
+			struct sized_buffer p(collector::get().pop(this));
+			if (p.len) {
 				/* TODO: fix to not copy */
-				uint32_t len = hton((uint32_t)p->size());
-				assert(to_write == 0 && write_queue.location() == 0);
-				write_queue.append(&len);
-				write_queue.seek(sizeof(len));
-				iobuf_spec::append(&write_queue, p->data(), p->size());
-				write_queue.seek(0);
-				to_write = p->size() + sizeof(len);
+				uint32_t len = hton((uint32_t)p.len);
+				write_queue.append((uint8_t*)&len, sizeof(len));
+				write_queue.append(p.buffer, p.len);
 			} else {
 				this->events = ev::NONE;
 				io.set(ev::NONE);

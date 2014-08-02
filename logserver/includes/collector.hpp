@@ -7,14 +7,26 @@
 #include <deque>
 
 #include "output_cxn.hpp"
-#include "cvector.hpp"
+#include "wrapped_buffer.hpp"
 
+struct sized_buffer {
+	wrapped_buffer<uint8_t> buffer;
+	size_t len; // usable length
+	sized_buffer(wrapped_buffer<uint8_t> other, size_t a_len) : buffer(other), len(a_len) {}
+	sized_buffer(const sized_buffer &o) : buffer(o.buffer), len(o.len) {}
+	sized_buffer() : buffer(), len(0) {}
+	sized_buffer & operator=(sized_buffer &o) {
+		buffer = o.buffer;
+		len = o.len;
+		return *this;
+	}
+};
 
 class collector {
 public:
 
-	void append(cvector<uint8_t> data);
-	std::shared_ptr<cvector<uint8_t> > pop(output_cxn::handler *h);
+	void append(wrapped_buffer<uint8_t> &&data, size_t len);
+	struct sized_buffer pop(output_cxn::handler *h);
 	void add_consumer(output_cxn::handler *h); /* adds a consumer handler */
 	void retire_consumer(output_cxn::handler *h);
 	static collector & get() {
@@ -24,7 +36,7 @@ public:
 private:
 	collector() : queues() {}
 	std::unordered_map<output_cxn::handler *, 
-	                   std::deque<std::shared_ptr<cvector<uint8_t> > > > queues;
+	                   std::deque<struct sized_buffer> > queues;
 };
 
 #endif
