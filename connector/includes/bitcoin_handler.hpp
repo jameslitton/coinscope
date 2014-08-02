@@ -24,7 +24,7 @@ const uint32_t RECV_PAYLOAD = 0x2;
 const uint32_t RECV_VERSION_INIT = 0x4; /* we initiated the handshake, now waiting to receive version */
 const uint32_t RECV_VERSION_INIT_HDR = 0x8; /* we initiated the handshake, now waiting to receive version */
 const uint32_t RECV_VERSION_REPLY_HDR = 0x10;
-const uint32_t RECV_VERSION_REPLY = 0x12;
+const uint32_t RECV_VERSION_REPLY = 0x20;
 
 const uint32_t SEND_MASK = 0xffff0000;
 const uint32_t SEND_MESSAGE = 0x10000;

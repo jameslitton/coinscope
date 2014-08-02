@@ -63,7 +63,7 @@ int main(int argc, char * argv[] ) {
 	output_cxn::handler::set_interest(&bitcoin_msg_handler, (uint8_t)BITCOIN_MSG);
 
 	handlers::accept_handler<output_cxn::handler> bitcoin_foo_handler(unix_sock_server(client_dir + "bitcoinx", 5, true));
-	output_cxn::handler::set_interest(&bitcoin_msg_handler, (uint8_t)(BITCOIN_MSG | BITCOIN));
+	output_cxn::handler::set_interest(&bitcoin_foo_handler, (uint8_t)(BITCOIN_MSG | BITCOIN));
 
 	handlers::accept_handler<output_cxn::handler> all_handler(unix_sock_server(client_dir + "all", 5, true));
 	output_cxn::handler::set_interest(&all_handler, (uint8_t)~0);

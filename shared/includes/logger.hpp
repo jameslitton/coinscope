@@ -19,7 +19,7 @@ enum log_type {
 	CTRL=0x4, /* control messages */
 	ERROR=0x8, /* strings */
 	BITCOIN=0x10, /* general status information (strings) */
-	BITCOIN_MSG=0x12, /* actual incoming/outgoing messages as encoded */
+	BITCOIN_MSG=0x20, /* actual incoming/outgoing messages as encoded */
 };
 
 

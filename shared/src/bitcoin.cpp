@@ -45,8 +45,11 @@ void set_address(struct version_packed_net_addr *dest, const struct sockaddr_in 
 	dest->port = src.sin_port;
 }
 
-uint64_t get_varint(const uint8_t *buf) {
+uint64_t get_varint(const uint8_t *buf, uint8_t *outsize) {
 	uint8_t size = get_varint_size(buf);
+	if (outsize) {
+		*outsize = size;
+	}
 	switch(size) {
 	case 1:
 		return buf[0];

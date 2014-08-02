@@ -9,6 +9,9 @@
 #include <stack>
 #include <memory>
 #include <set>
+#include <mutex>
+#include <condition_variable>
+#include <thread>
 
 /* standard unix libraries */
 #include <sys/types.h>
@@ -25,6 +28,7 @@
 #include "bitcoin.hpp"
 #include "config.hpp"
 #include "logger.hpp"
+#include "read_buffer.hpp"
 
 /* This is a simple test client to demonstrate use of the connector */
 
@@ -34,7 +38,10 @@ using namespace ctrl;
 
 uint32_t g_msg_id; /* left in network byte order */
 
+mutex g_visit_mux;
+condition_variable g_visit_cond;
 
+void fetch_addrs(const libconfig::Config *cfg);
 
 struct connect_message {
 	uint8_t version;
@@ -174,19 +181,130 @@ int main(int argc, char *argv[]) {
 	to_visit.push(message);
 
 
+	/* okay, start up worker thread */
+
+	thread fetcher(fetch_addrs, cfg);
+	fetcher.detach();
+
+
 	/* this is a lazy spider. It assumes we have a local bitcoin guy to start
 	   with and sets it as the start. It would be pretty easy to set
 	   this up to pick these guys off of the DNS. Just being lazy so I
 	   can watch the initiation */
 
-	while (to_visit.size()) {
-		struct connect_message m(to_visit.top());
-		to_visit.pop();
-		auto p = visited.insert(m.payload.remote_addr);
-		if (p.second) { /* item was not already visited */
-			visit(sock, m);
-		}
-	} 
-	
+	while(true) {
+		// can starve a little bit
+		unique_lock<mutex> lock(g_visit_mux);
+		g_visit_cond.wait(lock, [&]{ return to_visit.size(); });
+		do {
+			struct connect_message m(to_visit.top());
+			to_visit.pop();
+			lock.unlock();
+
+			auto p = visited.insert(m.payload.remote_addr);
+			if (p.second) { /* item was not already visited */
+				visit(sock, m);
+			}
+
+			lock.lock();
+		} while(to_visit.size());
+	}
+
 	return EXIT_SUCCESS;
 };
+
+
+void handle_message(read_buffer &input_buf) {
+	const uint8_t *buf = input_buf.extract_buffer().const_ptr();
+	enum log_type lt(static_cast<log_type>(buf[0]));
+
+	if (lt != BITCOIN_MSG) {
+		cout << ((char *)buf+8+1) << endl;
+		return;
+	}
+
+
+	assert(lt == BITCOIN_MSG);
+	//time_t time = ntoh(*( (uint64_t*)(buf+1)));
+	
+	const uint8_t *msg = buf + 8 + 1;
+
+	//uint32_t id = ntoh(*((uint32_t*) msg));
+	bool is_sender = *((bool*) (msg+4));
+	uint64_t total_cnt = 0;
+
+	const struct bitcoin::packed_message *bc_msg = (const struct bitcoin::packed_message*) (msg + 5);
+	const struct bitcoin::full_packed_net_addr *addrs;
+	if (!is_sender && strcmp(bc_msg->command, "addr") == 0) { /* okay, we actually care */
+		uint8_t size;
+		uint64_t count = bitcoin::get_varint(bc_msg->payload, &size);
+		total_cnt += count;
+		addrs = (const struct bitcoin::full_packed_net_addr*) (bc_msg->payload + size);
+
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+		struct connect_message message = { 0, hton((uint32_t)sizeof(connect_payload)), CONNECT, {{0},{0}} };
+#pragma GCC diagnostic warning "-Wmissing-field-initializers"
+
+		message.payload.local_addr.sin_family = AF_INET;
+		inet_pton(AF_INET, "127.0.0.1", &message.payload.local_addr.sin_addr);
+		message.payload.local_addr.sin_port = hton(static_cast<uint16_t>(0xdead));
+
+		for(size_t i = 0; i < count; ++i) {
+			struct sockaddr_in netaddr;
+			netaddr.sin_family = AF_INET;
+			netaddr.sin_port = addrs[i].rest.port;
+			netaddr.sin_addr = addrs[i].rest.addr.ipv4.as.in_addr;
+			memcpy(&message.payload.remote_addr, &netaddr, sizeof(netaddr));
+			{
+				unique_lock<mutex> lck(g_visit_mux);
+				to_visit.push(message);
+			}
+
+		}
+	}
+	if (total_cnt) { 
+		g_visit_cond.notify_all();
+	}
+}
+
+
+void fetch_addrs(const libconfig::Config *cfg) {
+
+	string root((const char*)cfg->lookup("logger.root"));
+
+	/* TODO: make configurable */
+	mkdir(root.c_str(), 0777);
+	string client_dir(root + "clients/");
+
+	int client = unix_sock_client(client_dir + "bitcoin_msg", false);
+
+	bool reading_len(true);
+
+	read_buffer input_buf(sizeof(uint32_t));
+
+	while(true) {
+		auto ret = input_buf.do_read(client);
+		int r = ret.first;
+		if (r == 0) {
+			cerr << "Disconnected\n";
+			exit(0);
+		} else if (r < 0) {
+			cerr << "Got error, " << strerror(errno) << endl;
+			abort();
+		}
+
+		if (!input_buf.hungry()) {
+			if (reading_len) {
+				uint32_t netlen = *((const uint32_t*) input_buf.extract_buffer().const_ptr());
+				input_buf.cursor(0);
+				input_buf.to_read(ntoh(netlen));
+				reading_len = false;
+			} else {
+				handle_message(input_buf);
+				input_buf.cursor(0);
+				input_buf.to_read(4);
+				reading_len = true;
+			}
+		}
+	}
+}
