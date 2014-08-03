@@ -37,6 +37,17 @@ using namespace std;
 namespace bc = bitcoin;
 
 
+static void log_watcher(ev::timer &w, int /*revents*/) {
+	if (g_log_buffer == nullptr) {
+		try {
+			g_log_buffer = new log_buffer(unix_sock_client(*static_cast<string*>(w.data), true));
+		} catch(const network_error &e) {
+			g_log_buffer = nullptr;
+			g_log<ERROR>(e.what());
+		}
+	}
+}
+
 int main(int argc, const char *argv[]) {
 
 	cout.sync_with_stdio(false);
@@ -53,7 +64,17 @@ int main(int argc, const char *argv[]) {
 	cerr << "Starting up and transferring to log server" << endl;
 
 	string root((const char*)cfg->lookup("logger.root"));
-	g_log_buffer = new log_buffer(unix_sock_client(root + "servers", true));
+	string logpath = root + "servers";
+	try {
+		g_log_buffer = new log_buffer(unix_sock_client(logpath, true));
+	} catch (const network_error &e) {
+		cerr << "WARNING: Could not connect to log server! " << e.what() << endl;
+	}
+
+	ev::timer logwatch;
+	logwatch.set<log_watcher>(&logpath);
+	logwatch.set(10.0, 10.0);
+	logwatch.start();
 
 	const char *control_filename = cfg->lookup("connector.control_path");
 	unlink(control_filename);

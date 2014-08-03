@@ -15,7 +15,6 @@ log_buffer::log_buffer(int fd) : write_queue(), fd(fd), io() {
 	io.start();
 }
 void log_buffer::append(wrapped_buffer<uint8_t> &ptr, size_t len) {
-	/* TODO: make no copy */
 	size_t to_write = write_queue.to_write();
 	uint32_t netlen = hton((uint32_t)len);
 	write_queue.append((uint8_t*)&netlen, sizeof(netlen));
@@ -97,7 +96,11 @@ template <> void g_log<BITCOIN>(uint32_t update_type, uint32_t handle_id, const 
 		copy((uint8_t*)text, (uint8_t*)text + text_len, ptr);
 		ptr += text_len;
 	}
-	g_log_buffer->append(wbuf, len);
+	if (g_log_buffer) {
+		g_log_buffer->append(wbuf, len);
+	} else {
+		std::cerr << "<<CONSOLE FALLBACK>> " << "BITCOIN: " << " TODO: pretty print this fallback, but really, don't use the fallback\n";
+	}
 
 }
 
@@ -129,7 +132,12 @@ template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bi
 	copy((uint8_t*) m, ((uint8_t*)m) + sizeof(*m) + m->length, 
 	     ptr);
 	ptr += sizeof(*m) + m->length;
-	g_log_buffer->append(wbuf, len);
+	if (g_log_buffer) {
+		g_log_buffer->append(wbuf, len);
+	} else {
+		std::cerr << "<<CONSOLE FALLBACK>> " << "BITCOIN_MSG ID: " << id << " IS_SENDER: " << is_sender << *m << endl;
+	}
+
 }
 
 
