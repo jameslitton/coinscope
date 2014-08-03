@@ -52,8 +52,6 @@ struct connect_response {
 	uint32_t registration_id; /* id of the agent connection is made for (should be the sender/redundant) NBO */
 	struct connection_info info;
 } __attribute__((packed));
-	
-	
 
 struct command_msg {
 	uint8_t command;

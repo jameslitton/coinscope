@@ -4,6 +4,7 @@
 
 #include <iostream>
 #include <sstream>
+#include <set>
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -20,6 +21,72 @@ handler_map g_active_handlers;
 handler_set g_inactive_handlers;
 
 uint32_t handler::id_pool = 0;
+
+static set<connect_handler *> g_inactive_connection_handlers; /* to be deleted */
+
+connect_handler::connect_handler(int fd, const struct sockaddr_in &remote_addr) 
+	: remote_addr_(remote_addr), io() 
+{
+
+	/* clean up old dead ones. There's a logic to this scheme, dumb as it is. Ask
+	   if you want to hear it. */
+	for(auto it = g_inactive_connection_handlers.begin(); it != g_inactive_connection_handlers.end(); ++it) {
+		delete *it;
+	}
+	g_inactive_connection_handlers.clear();
+
+
+	/* first try it */
+	int rv = connect(fd, (struct sockaddr*)&remote_addr_, sizeof(remote_addr_));
+	if (rv == 0) {
+		g_log<DEBUG>("No need to do non-blocking connect, setup was instant");
+		setup_handler(fd);
+		g_inactive_connection_handlers.insert(this);
+	} else if (errno == EINPROGRESS || errno == EALREADY) {
+		io.set<connect_handler, &connect_handler::io_cb>(this);
+		io.set(fd, ev::WRITE); /* mark as writable once the connection comes in */
+		io.start();
+	}
+}
+
+void connect_handler::setup_handler(int fd) { 
+	struct sockaddr_in local;
+	socklen_t len = sizeof(local);
+	bzero(&local,sizeof(local));
+	if (getsockname(fd, (struct sockaddr*) &local, &len) != 0) {
+		g_log<ERROR>(strerror(errno));
+	} 
+	handler *h = new handler(fd, SEND_VERSION_INIT, remote_addr_, local);
+	g_active_handlers.insert(make_pair(h->get_id(), h));
+}
+
+void connect_handler::io_cb(ev::io &watcher, int /*revents*/) {
+	int rv = connect(watcher.fd, (struct sockaddr*)&remote_addr_, sizeof(remote_addr_));
+
+	if (rv == 0) {
+		setup_handler(watcher.fd);
+		io.stop();
+		io.fd = -1;
+		g_inactive_connection_handlers.insert(this);
+	} else if (errno == EALREADY || errno == EINPROGRESS) {
+		/* spurious event. */
+	} else {
+		io.stop();
+		io.fd = -1;
+		close(io.fd);
+		g_inactive_connection_handlers.insert(this);
+		g_log<BITCOIN>("lost connection put right info here ");
+	}
+}
+
+connect_handler::~connect_handler() { 
+	/* naturally the file descriptor need not be closed. It belongs to the
+	   bc::handler now, if anyone. */
+	assert(! io.is_active());
+}
+
+
+
 
 accept_handler::accept_handler(int fd, const struct sockaddr_in &a_local_addr)
 	: local_addr(a_local_addr), io()

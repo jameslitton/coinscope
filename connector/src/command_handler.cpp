@@ -177,49 +177,22 @@ void handler::receive_payload() {
 			g_log<CTRL>("Attempting to connect for", regid);
 
 			int fd(-1);
+			// TODO: setting local on the client does nothing, but could specify the interface used
 			try {
-				// TODO: setting local on the client does nothing, but could specify the interface used
 				fd = Socket(AF_INET, SOCK_STREAM, 0);
-				/* This socket is NOT non-blocking. Is this an issue in building up connections? */
-				Connect(fd, (struct sockaddr*)&payload->remote_addr, sizeof(payload->remote_addr));
 				fcntl(fd, F_SETFL, O_NONBLOCK);
 			} catch (network_error &e) {
 				if (fd >= 0) {
 					close(fd);
 					fd = -1;
 				}
-
 				g_log<ERROR>(e.what(), "(command_handler CONNECT)");
 			}
 
-			/* send back connect_response */
-			struct connect_response response;
-			bzero(&response, sizeof(response));
-
 			if (fd >= 0) {
-				struct sockaddr_in local;
-				socklen_t len = sizeof(local);
-				bzero(&local,sizeof(local));
-				if (getsockname(fd, (struct sockaddr*) &local, &len) != 0) {
-					g_log<ERROR>(strerror(errno));
-					memcpy(&local, &payload->local_addr, sizeof(local));
-				} 
-				bc::handler *h = new bc::handler(fd, bc::SEND_VERSION_INIT, payload->remote_addr, local);
-				bc::g_active_handlers.insert(make_pair(h->get_id(), h));
-				
-				response.result = 0;
-				response.registration_id = hton(regid);
-				response.info.handle_id = hton(h->get_id());
-				response.info.remote_addr = payload->remote_addr;
-				response.info.local_addr = local;
-				
-			} else {
-				response.result = hton((int32_t)errno);
+				/* yes, it dangles. It schedules itself for cleanup. yech */
+				new bc::connect_handler(fd, payload->remote_addr); 
 			}
-
-			write_queue.append((uint8_t*)&response, sizeof(response));
-			state |= SEND_MESSAGE;
-
 		}
 		break;
 	default:

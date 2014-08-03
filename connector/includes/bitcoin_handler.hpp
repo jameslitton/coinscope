@@ -99,6 +99,22 @@ typedef std::map<uint32_t, handler*> handler_map;
 extern handler_map g_active_handlers;
 extern handler_set g_inactive_handlers;
 
+class connect_handler { /* for non-blocking connectors */
+public:
+	/* fd should be non-blocking socket. Connect has not been called yet */
+	connect_handler(int fd, const struct sockaddr_in &remote_addr); 
+	void io_cb(ev::io &watcher, int revents);
+	~connect_handler();
+private:
+	struct sockaddr_in remote_addr_;
+	ev::io io;
+	void setup_handler(int fd);
+	connect_handler & operator=(connect_handler other);
+	connect_handler(const connect_handler &);
+	connect_handler(const connect_handler &&other);
+	connect_handler & operator=(connect_handler &&other);
+};
+
 
 class accept_handler {
 public:

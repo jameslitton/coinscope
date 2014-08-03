@@ -82,7 +82,7 @@ int main(int argc, const char *argv[]) {
 		uint16_t port((int)setting[2]);
 		int backlog(setting[3]);
 
-		g_log<BITCOIN>("Attempting to instantiate listener on ", family, 
+		g_log<DEBUG>("Attempting to instantiate listener on ", family, 
 		               ipv4, port, "with backlog", backlog);
 
 		if (family != "AF_INET") {
