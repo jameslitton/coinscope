@@ -1,5 +1,6 @@
 #include <cassert>
 
+#include <unistd.h>
 #include <arpa/inet.h>
 
 #include "logger.hpp"
@@ -8,31 +9,27 @@
 
 using namespace std;
 
-log_buffer::log_buffer(int fd) : write_queue(), to_write(), fd(fd), io() { 
+log_buffer::log_buffer(int fd) : write_queue(), fd(fd), io() { 
 	io.set<log_buffer, &log_buffer::io_cb>(this);
 	io.set(fd, ev::WRITE);
 	io.start();
 }
-void log_buffer::append(cvector<uint8_t> &&ptr) {
+void log_buffer::append(wrapped_buffer<uint8_t> &ptr, size_t len) {
 	/* TODO: make no copy */
-	uint32_t netlen = hton((uint32_t)ptr.size());
-	size_t old_loc = write_queue.location();
-	write_queue.seek(write_queue.location() + to_write);
-	iobuf_spec::append(&write_queue, (uint8_t*)&netlen, sizeof(netlen));
-	write_queue.seek(write_queue.location() + sizeof(netlen));
-	iobuf_spec::append(&write_queue, ptr.data(), ptr.size());
-	write_queue.seek(old_loc);
+	size_t to_write = write_queue.to_write();
+	uint32_t netlen = hton((uint32_t)len);
+	write_queue.append((uint8_t*)&netlen, sizeof(netlen));
+	write_queue.append(ptr, len);
 	if (to_write == 0) {
 		io.set(fd, ev::WRITE);
 	}
-	to_write += ptr.size() + sizeof(netlen);
-
 }
+
 void log_buffer::io_cb(ev::io &watcher, int /*revents*/) {
 	ssize_t r(1);
-	while(to_write && r > 0) {
-		assert(write_queue.location() + to_write <= write_queue.end());
-		r = write(watcher.fd, write_queue.offset_buffer(), to_write);
+	while(write_queue.to_write() && r > 0) {
+		auto res = write_queue.do_write(watcher.fd);
+		r = res.first;
 		if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 			/* where to log when the log is dead... */
 			cerr << "Cannot write out log: " << strerror(errno) << endl;
@@ -43,14 +40,9 @@ void log_buffer::io_cb(ev::io &watcher, int /*revents*/) {
 			/* TODO: re-establish connection? */
 			return;
 		}
-		if (r > 0) {
-			to_write -= r;
-			write_queue.seek(write_queue.location() + r);
-		}
 	}
-	if (to_write == 0) {
+	if (write_queue.to_write() == 0) {
 		io.set(watcher.fd, ev::NONE);
-		write_queue.seek(0);
 	}
 }
 log_buffer::~log_buffer() {
@@ -64,21 +56,32 @@ log_buffer *g_log_buffer;
 
 template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bitcoin::packed_message *m) {
 
-	/* TODO: eliminate copy */
 	uint64_t net_time = hton((uint64_t)time(NULL));
 	uint32_t net_id = hton(id);
-	cvector<uint8_t> ptr(1 + sizeof(net_time) + sizeof(net_id) + 1 + sizeof(*m) + m->length);
-	ptr.push_back(BITCOIN_MSG);
-	auto back = back_inserter(ptr);
+	size_t len = 1 + sizeof(net_time) + sizeof(net_id) + 1 + sizeof(*m) + m->length;
+	wrapped_buffer<uint8_t> wbuf(len);
+	uint8_t *ptr = wbuf.ptr();
+
+	uint8_t typ = BITCOIN_MSG;
+	copy((uint8_t*) &typ, ((uint8_t*) &typ) + 1, ptr);
+	ptr += 1;
+
 	copy((uint8_t*) &net_time, ((uint8_t*)&net_time) + sizeof(net_time),
-	     back);
+	     ptr);
+	ptr += sizeof(net_time);
+
 	copy((uint8_t*) &net_id, ((uint8_t*)&net_id) + sizeof(net_id), 
-	     back);
+	     ptr);
+	ptr += sizeof(net_id);
+
 	copy((uint8_t*) &is_sender, ((uint8_t*)&is_sender) + sizeof(is_sender), 
-	     back);
+	     ptr);
+	ptr += sizeof(is_sender);
+
 	copy((uint8_t*) m, ((uint8_t*)m) + sizeof(*m) + m->length, 
-	     back);
-	g_log_buffer->append(move(ptr));
+	     ptr);
+	ptr += sizeof(*m) + m->length;
+	g_log_buffer->append(wbuf, len);
 }
 
 

@@ -2,6 +2,7 @@
 #include <iterator>
 #include <sstream>
 #include <map>
+#include <algorithm>
 
 #include <unistd.h>
 #include <arpa/inet.h>

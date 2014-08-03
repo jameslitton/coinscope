@@ -176,23 +176,7 @@ void handler::handle_message_recv(const struct packed_message *msg) {
 		vector<uint8_t> payload(get_inv(vector<inv_vector>()));
 		append_for_write(get_message("inv", payload));
 	} else if (false && strcmp(msg->command, "getaddr") == 0) { /* need to be careful about pollution, placeholder */
-		if (g_active_handlers.size()) {
-			/* TODO: pick N? a handler(s) at random */
-			const handler &rand(*(g_active_handlers.begin()->second));
-			cvector<uint8_t> payload;
-			payload.lazy_resize(64);
-			size_t varint_size = to_varint(payload.data(), 1);
-			size_t total_size = varint_size + sizeof(struct version_packed_net_addr) + 4;
-			payload.lazy_resize(total_size);
-			uint8_t *buf = payload.data() + varint_size;
-
-			*((uint32_t*) buf) = rand.timestamp;
-			buf += 4;
-			set_address((struct version_packed_net_addr *)(buf), rand.remote_addr);
-			append_for_write(get_message("addr", payload.data(), total_size));
-		}
-		
-
+		// see commit 9f30aa21efe3080b004d5a48ef7be46e9b88e9a5 for placeholder code here 
 	}
 }
 
