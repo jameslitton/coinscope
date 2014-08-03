@@ -71,11 +71,16 @@ void connect_handler::io_cb(ev::io &watcher, int /*revents*/) {
 	} else if (errno == EALREADY || errno == EINPROGRESS) {
 		/* spurious event. */
 	} else {
+		char *err = strerror(errno);
+		uint32_t len = strlen(err);
 		io.stop();
 		io.fd = -1;
 		close(io.fd);
 		g_inactive_connection_handlers.insert(this);
-		g_log<BITCOIN>("lost connection put right info here ");
+		struct sockaddr_in local;
+		bzero(&local, sizeof(local));
+		local.sin_family = AF_INET; /* there is no local connection actually */
+		g_log<BITCOIN>(CONNECT_FAILURE, 0, remote_addr_, local, err, len);
 	}
 }
 
@@ -119,11 +124,16 @@ void accept_handler::io_cb(ev::io &watcher, int /*revents*/) {
 		return;
 	}
 
-	g_log<BITCOIN>("accepted connection to client on fd", client, "at" , *((struct sockaddr*)&addr));
+	sockaddr_in local;
+	socklen_t socklen = sizeof(local);
+	bzero(&local,sizeof(local));
+	if (getsockname(client, (struct sockaddr*) &local, &socklen) != 0) {
+		g_log<ERROR>(strerror(errno));
+	} 
 
 	/* TODO: if can be converted to smarter pointers sensibly, consider, but
 	   since libev doesn't use them makes it hard */
-	handler *h(new handler(client, RECV_VERSION_REPLY_HDR, addr, local_addr));
+	handler *h(new handler(client, RECV_VERSION_REPLY_HDR, addr, local));
 	g_active_handlers.insert(make_pair(h->get_id(), h));
 	for(auto it = g_inactive_handlers.begin(); it != g_inactive_handlers.end(); ++it) {
 		delete *it;
@@ -144,21 +154,19 @@ handler::handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_ad
 
 	ostringstream oss;
 	
-	oss << "Initiating handler with state " << state << " on " << *((struct sockaddr*)&local_addr)
-	    << " with " << *((struct sockaddr*)&remote_addr) << " with id " << id << endl;
-	g_log<BITCOIN>(oss.str());
-
 	io.set<handler, &handler::io_cb>(this);
-	if (a_state == SEND_VERSION_INIT) {
+	if (a_state == SEND_VERSION_INIT) { /* we initiated the connection */
 		io.set(fd, ev::WRITE);
 		/* TODO: profile to see if extra copies are worth optimizing away */
 		struct combined_version vers(get_version(USER_AGENT, local_addr, remote_addr));
 		unique_ptr<struct packed_message> m(get_message("version", vers.as_buffer(), vers.size));
 		g_log<BITCOIN_MSG>(id, true, m.get());
 		write_queue.append((const uint8_t *) m.get(), m->length + sizeof(*m));
-	} else if (a_state == RECV_VERSION_REPLY_HDR) {
+		g_log<BITCOIN>(CONNECT_SUCCESS, id, remote_addr, local_addr, NULL, 0);
+	} else if (a_state == RECV_VERSION_REPLY_HDR) { /* they initiated did */
 		io.set(fd, ev::READ);
 		read_queue.to_read(sizeof(struct packed_message));
+		g_log<BITCOIN>(ACCEPT_SUCCESS, id, remote_addr, local_addr, NULL, 0);
 	}
 	assert(io.fd > 0);
 	io.start();
@@ -182,14 +190,12 @@ void handler::handle_message_recv(const struct packed_message *msg) {
 
 handler::~handler() { 
 	if (io.fd >= 0) {
-		g_log<BITCOIN>("Shutting down via destructor", id);
 		io.stop();
 		close(io.fd);
 	}
 }
 
 void handler::suicide() {
-	g_log<BITCOIN>("Shutting down", id);
 	io.stop();
 	close(io.fd);
 	io.fd = -1;
@@ -229,9 +235,10 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 				   log error and queue object for deletion
 				*/
 				if (errno == ECONNRESET) {
-					g_log<BITCOIN>("Connection reset by peer", id);
+					g_log<BITCOIN>(PEER_RESET, id, remote_addr, local_addr, NULL, 0);
 				} else {
-					g_log<ERROR>("Got unexpected error on handler. ", id, strerror(errno));
+					char *err = strerror(errno);
+					g_log<BITCOIN>(UNEXPECTED_ERROR, id, remote_addr, local_addr, err, strlen(err));
 				}
 				suicide();
 				return;
@@ -239,7 +246,7 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 			}
 			if (r == 0) { /* got disconnected! */
 				/* LOG disconnect */
-				g_log<BITCOIN>("Orderly disconnect", id);
+				g_log<BITCOIN>(ORDERLY_DISCONNECT, id, remote_addr, local_addr, NULL, 0);
 				suicide();
 				return;
 			}
@@ -316,7 +323,8 @@ void handler::do_write(ev::io &watcher, int /*revents*/) {
 		r = res.first;
 		if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 			/* most probably a disconnect of some sort, log error and queue object for deletion */
-			g_log<BITCOIN>("Received error on write:", id, strerror(errno));
+			char *err = strerror(errno);
+			g_log<BITCOIN>(WRITE_DISCONNECT, id, remote_addr, local_addr, err, strlen(err));
 			suicide();
 			return;
 		} 

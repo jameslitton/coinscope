@@ -48,22 +48,6 @@ struct connection_info { /* response to COMMAND_GET_CXN && part of response for 
 } __attribute__((packed));
 
 
-const uint32_t CONNECT_SUCCESS(0x1); // We initiated the connection 
-const uint32_t ACCEPT_SUCCESS(0x2); // They initiated the connection (i.e., the result of an accept)
-const uint32_t ORDERLY_DISCONNECT(0x4); // Attempt to read returns 0
-const uint32_t WRITE_DISCONNECT(0x8); // Attempt to write returns error, disconnected
-const uint32_t UNEXPECTED_ERROR(0x10); // We got some kind of other error, indicating potentially iffy state, so disconnected
-const uint32_t CONNECT_FAILURE(0x20); // We initiated a connection, but if failed.
-
-struct handler_update { /* sent across BITCOIN when a change occurs */
-	uint32_t update_type;  /* one of the above constants */
-	struct connection_info info;
-	uint32_t text_len;
-	char text[0];  /* any additional text message we want to send */
-} __attribute__((packed));
-
-
-
 struct connect_response {
 	int32_t result; /* this is zero on success, or errno on failure, Network byte order */
 	uint32_t registration_id; /* id of the agent connection is made for (should be the sender/redundant) NBO */

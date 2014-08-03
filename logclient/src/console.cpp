@@ -74,6 +74,52 @@ void print_message(read_buffer &input_buf) {
 		cout << " ID:" << ntoh(*((uint32_t*) msg)) << " IS_SENDER:" << *((bool*) (msg+4));
 		msg += 5;
 		cout << " " << ((const struct bitcoin::packed_message*)(msg)) << endl;
+	} else if (lt == BITCOIN) {
+
+		/* TODO: write a function to unwrap this as a struct */
+		uint32_t update_type = ntoh(*((uint32_t*)(msg + 4)));
+		const struct sockaddr *remote = (const sockaddr*)(msg + 8);
+		const struct sockaddr *local = (const sockaddr*)(msg + 8 + sizeof(sockaddr_in));
+		uint32_t text_len = ntoh(*(uint32_t*)(msg + 8 + sizeof(sockaddr_in)*2));
+		const char * text = (char*)( msg + 8 + sizeof(sockaddr_in)*2 + 4);
+
+		cout << " ID:" << ntoh(*((uint32_t*) msg)) << ", UPDATE_TYPE: ";
+		switch (update_type) {
+		case CONNECT_SUCCESS:
+			cout << "CONNECT_SUCCESS";
+			break;
+		case ACCEPT_SUCCESS:
+			cout << "ACCEPT_SUCCESS";
+			break;
+		case ORDERLY_DISCONNECT:
+			cout << "ORDERLY_DISCONNECT";
+			break;
+		case WRITE_DISCONNECT:
+			cout << "WRITE_DISCONNECT";
+			break;
+		case UNEXPECTED_ERROR:
+			cout << "UNEXPECTED_ERROR";
+			break;
+		case CONNECT_FAILURE:
+			cout << "CONNECT_FAILURE";
+			break;
+		case PEER_RESET:
+			cout << "PEER_RESET";
+			break;
+		default:
+			cout << "Unknown update type(" << update_type << ")";
+			break;
+		}
+
+		cout << ", REMOTE: " << *remote << ", local: " << *local;
+		if (text_len) {
+			cout << ", text: " << text << endl;
+		} else {
+			cout << endl;
+		}
+
+		
+
 	} else {
 		cout << " " << ((char*)msg) << endl;
 	}

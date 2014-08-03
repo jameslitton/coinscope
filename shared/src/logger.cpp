@@ -54,6 +54,53 @@ log_buffer *g_log_buffer;
 
 
 
+template <> void g_log<BITCOIN>(uint32_t update_type, uint32_t handle_id, const struct sockaddr_in &remote, 
+                                const struct sockaddr_in &local, const char * text, uint32_t text_len) {
+	uint64_t net_time = hton((uint64_t)time(NULL));
+	size_t len = 1 + sizeof(net_time) + sizeof(handle_id) + sizeof(update_type) +
+		2*sizeof(remote) + sizeof(text_len) + text_len;
+	wrapped_buffer<uint8_t> wbuf(len);
+	uint8_t *ptr = wbuf.ptr();
+
+	uint8_t typ = BITCOIN;
+	copy((uint8_t*) &typ, ((uint8_t*) &typ) + 1, ptr);
+	ptr += 1;
+
+	copy((uint8_t*) &net_time, ((uint8_t*)&net_time) + sizeof(net_time),
+	     ptr);
+	ptr += sizeof(net_time);
+
+	handle_id = hton(handle_id);
+	copy((uint8_t*) &handle_id, ((uint8_t*)&handle_id) + sizeof(handle_id), 
+	     ptr);
+	ptr += sizeof(handle_id);
+
+	update_type = hton(update_type);
+	copy((uint8_t*) &update_type, ((uint8_t*)&update_type) + sizeof(update_type), 
+	     ptr);
+	ptr += sizeof(update_type);
+
+	copy((uint8_t*) &remote, ((uint8_t*)&remote) + sizeof(remote), 
+	     ptr);
+	ptr += sizeof(remote);
+
+	copy((uint8_t*) &local, ((uint8_t*)&local) + sizeof(local), 
+	     ptr);
+	ptr += sizeof(local);
+
+	uint32_t netlen = hton((uint32_t)text_len);
+	copy((uint8_t*) &netlen, ((uint8_t*)&netlen) + sizeof(netlen), 
+	     ptr);
+	ptr += sizeof(netlen);
+
+	if (text_len) {
+		copy((uint8_t*)text, (uint8_t*)text + text_len, ptr);
+		ptr += text_len;
+	}
+	g_log_buffer->append(wbuf, len);
+
+}
+
 template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bitcoin::packed_message *m) {
 
 	uint64_t net_time = hton((uint64_t)time(NULL));
@@ -74,6 +121,7 @@ template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bi
 	     ptr);
 	ptr += sizeof(net_id);
 
+	assert(sizeof(is_sender) == 1);
 	copy((uint8_t*) &is_sender, ((uint8_t*)&is_sender) + sizeof(is_sender), 
 	     ptr);
 	ptr += sizeof(is_sender);
@@ -100,11 +148,12 @@ ostream & operator<<(ostream &o, const struct ctrl::message &m) {
 
 ostream & operator<<(ostream &o, const struct bitcoin::packed_message *m) {
 	o << "MSG { length => " << m->length;
-	o << ", magic => " << hex << m->magic;
+	o << ", magic => 0x" << hex << m->magic;
 	o << ", command => " << m->command;
-	o << ", checksum => " << hex << m->checksum;		
+	o << ", checksum => 0x" << hex << m->checksum;		
 	o << ", payload => ommitted"; //o.write((char*)m, m->length + sizeof(*m));
 	o << "}";
+	o << dec;
 	return o;
 }
 

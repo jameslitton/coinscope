@@ -22,6 +22,16 @@ enum log_type {
 };
 
 
+const uint32_t CONNECT_SUCCESS(0x1); // We initiated the connection 
+const uint32_t ACCEPT_SUCCESS(0x2); // They initiated the connection (i.e., the result of an accept)
+const uint32_t ORDERLY_DISCONNECT(0x4); // Attempt to read returns 0
+const uint32_t WRITE_DISCONNECT(0x8); // Attempt to write returns error, disconnected
+const uint32_t UNEXPECTED_ERROR(0x10); // We got some kind of other error, indicating potentially iffy state, so disconnected
+const uint32_t CONNECT_FAILURE(0x20); // We initiated a connection, but if failed.
+const uint32_t PEER_RESET(0x40); // connection reset by peer
+
+
+
 std::ostream & operator<<(std::ostream &o, const struct ctrl::message *m);
 std::ostream & operator<<(std::ostream &o, const struct ctrl::message &m);
 
@@ -39,6 +49,18 @@ std::string type_to_str(enum log_type type);
 // uint8_t type
 // uint32_t timestamp /* network byte order */
 // The rest... (stringstreamed i.e., operator<<(ostream, rest) done)
+
+/* Log format for BITCOIN types */
+// uint8_t type (i.e., BITCOIN)
+// uint64_t timestamp /* NBO */
+// uint32_t id 
+// uin32_t update_type //see above
+// sockaddr_in remote_addr
+// sockaddr_in local_addr
+// uint32_t text_len
+// char text[text_len]
+
+
 
 /* Log format for BITCOIN_MSG types */
 //    uint8_t type
@@ -119,5 +141,10 @@ void g_log(const std::string &val, Targs... Fargs) {
 
 template <int N> void g_log(uint32_t id, bool is_sender, const struct bitcoin::packed_message *m);
 template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bitcoin::packed_message *m);
+
+template <int N> void g_log(uint32_t update_type, uint32_t handle_id, const struct sockaddr_in &remote, 
+                            const struct sockaddr_in &local, const char * text, uint32_t text_len);
+template <> void g_log<BITCOIN>(uint32_t update_type, uint32_t handle_id, const struct sockaddr_in &remote, 
+                                const struct sockaddr_in &local, const char * text, uint32_t text_len);
 
 #endif
