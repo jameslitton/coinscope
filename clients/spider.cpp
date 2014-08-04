@@ -179,6 +179,7 @@ int main(int argc, char *argv[]) {
 			const struct message *msg = (const struct message*) pmf.first.const_ptr();
 			if (msg->message_type == CONNECT) {
 				const struct connect_message *con_msg  = (const struct connect_message*) msg;
+				cout << "Connect attemp to " << *((struct sockaddr*) &con_msg->payload.remote_addr) << endl;
 				auto p = visited.insert(con_msg->payload.remote_addr);
 				if (p.second) { /* Did not attempt to connect to him yet */
 					assert(pmf.second == sizeof(*con_msg));
@@ -198,6 +199,13 @@ int main(int argc, char *argv[]) {
 
 	return EXIT_SUCCESS;
 };
+
+bool is_private(uint32_t ip) {
+  uint32_t a = ip & 0x000000FF;
+  uint32_t b = ip & 0x0000FF00;
+
+  return (a == 10 || (a == 192 && b == 168) || (a == 172 && b >= 16 && b <= 31));
+}
 
 
 void handle_message(read_buffer &input_buf) {
@@ -243,6 +251,7 @@ void handle_message(read_buffer &input_buf) {
 
 
 		for(size_t i = 0; i < count; ++i) {
+		  if (!is_private(addrs[i].rest.addr.ipv4.as.number) && ntoh(addrs[i].rest.port) == 8333) {
 			message = (struct connect_message*) buf.ptr(); /* re-trigger COW check */
 			struct sockaddr_in netaddr;
 			netaddr.sin_family = AF_INET;
@@ -254,6 +263,7 @@ void handle_message(read_buffer &input_buf) {
 				auto p(make_pair(buf, sizeof(*message)));
 				pending_messages.push_back(p);
 			}
+		  }
 
 		}
 		if (total_cnt) { 
