@@ -21,6 +21,7 @@
 #include "bitcoin.hpp"
 #include "config.hpp"
 #include "logger.hpp"
+#include "bcwatch.hpp"
 
 /* This is a simple test client to demonstrate use of the connector */
 
@@ -46,6 +47,35 @@ int main(int argc, char *argv[]) {
 	const libconfig::Config *cfg(get_config());
 
 	int sock = unix_sock_client((const char*)cfg->lookup("connector.control_path"), false);
+
+	string root((const char*)cfg->lookup("logger.root"));
+	mkdir(root.c_str(), 0777);
+	string client_dir(root + "clients/");
+	int bitcoin_client = unix_sock_client(client_dir + "bitcoin", false);
+	bcwatch watcher(bitcoin_client, 
+	                [](struct bc_channel_msg *msg) {
+		                cout << "Successful connect. Details follow: " << endl;
+		                cout << "\ttime: " << msg->time << endl;
+		                cout << "\thandle_id: " << msg->handle_id << endl;
+		                cout << "\tupdate_type: " << msg->update_type << endl;
+		                cout << "\tremote: " << *((struct sockaddr*) &msg->remote) << endl;
+		                cout << "\tlocal: " << *((struct sockaddr*) &msg->local) << endl;
+		                cout << "\ttext_length: " << msg->text_length << endl;
+		                if (msg->text_length) {
+			                cout << "\ttext: " << msg->text << endl;
+		                }
+	                },
+	                [](struct bc_channel_msg *msg) {
+		                cout << "Unsuccessful connect. Details follow: " << endl;
+		                cout << "\ttime: " << msg->time << endl;
+		                cout << "\tupdate_type: " << msg->update_type << endl;
+		                cout << "\tremote: " << *((struct sockaddr*) &msg->remote) << endl;
+		                cout << "\ttext_length: " << msg->text_length << endl;
+		                if (msg->text_length) {
+			                cout << "\ttext: " << msg->text << endl;
+		                }
+	                });
+	                
 
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 	struct connect_message message = { 0, hton((uint32_t)sizeof(connect_payload)), CONNECT, {{0},{0}} };
@@ -76,20 +106,7 @@ int main(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	struct connect_response response;
-	if (recv(sock, &response, sizeof(response), MSG_WAITALL) != sizeof(response)) {
-		perror("read");
-		return EXIT_FAILURE;
-	}
-
-	cout << "Got a response, here it is: " << endl;
-
-	cout << "\tResult: " << ntoh(response.result) << endl;
-	cout << "\tRegistration ID: " << ntoh(response.registration_id) << endl;
-	cout << "\tHandle ID: " << ntoh(response.info.handle_id) << endl;
-	cout << "\tremote: " << *((struct sockaddr*)&response.info.remote_addr) << endl;
-	cout << "\tlocal: " << *((struct sockaddr*)&response.info.local_addr) << endl;
-	
+	watcher.loop_once();
 	
 	return EXIT_SUCCESS;
 };
