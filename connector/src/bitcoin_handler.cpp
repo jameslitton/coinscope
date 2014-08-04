@@ -80,7 +80,7 @@ void connect_handler::io_cb(ev::io &watcher, int /*revents*/) {
 		struct sockaddr_in local;
 		bzero(&local, sizeof(local));
 		local.sin_family = AF_INET; /* there is no local connection actually */
-		g_log<BITCOIN>(CONNECT_FAILURE, 0, remote_addr_, local, err, len);
+		g_log<BITCOIN>(CONNECT_FAILURE, 0, remote_addr_, local, err, len+1);
 	}
 }
 
@@ -250,7 +250,7 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 					g_log<BITCOIN>(PEER_RESET, id, remote_addr, local_addr, NULL, 0);
 				} else {
 					char *err = strerror(errno);
-					g_log<BITCOIN>(UNEXPECTED_ERROR, id, remote_addr, local_addr, err, strlen(err));
+					g_log<BITCOIN>(UNEXPECTED_ERROR, id, remote_addr, local_addr, err, strlen(err)+1);
 				}
 				suicide();
 				return;
@@ -336,7 +336,7 @@ void handler::do_write(ev::io &watcher, int /*revents*/) {
 		if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 			/* most probably a disconnect of some sort, log error and queue object for deletion */
 			char *err = strerror(errno);
-			g_log<BITCOIN>(WRITE_DISCONNECT, id, remote_addr, local_addr, err, strlen(err));
+			g_log<BITCOIN>(WRITE_DISCONNECT, id, remote_addr, local_addr, err, strlen(err)+1);
 			suicide();
 			return;
 		} 
