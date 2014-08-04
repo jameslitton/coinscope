@@ -45,9 +45,16 @@ public:
 
 };
 
-map<uint32_t, registered_msg> g_messages;
+map<uint32_t, map<uint32_t, registered_msg> > g_messages; /* handle_id, register_id, mesg */
 
 
+handler::~handler() {
+	g_messages.erase(id);
+	if (io.fd >= 0) {
+		io.stop();
+		close(io.fd);
+	}
+}
 void handler::handle_message_recv(const struct command_msg *msg) { 
 	vector<uint8_t> out;
 
@@ -74,8 +81,8 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 	} else if (msg->command == COMMAND_SEND_MSG) {
 		uint32_t message_id = ntoh(msg->message_id);
 		g_log<DEBUG>("Attempting to send command message", message_id);
-		auto it = g_messages.find(message_id);
-		if (it == g_messages.end()) {
+		auto it = g_messages[this->id].find(message_id);
+		if (it == g_messages[this->id].end()) {
 			g_log<ERROR>("invalid message id", message_id);
 		} else {
 			shared_ptr<struct bc::packed_message> packed(it->second.get_buffer());
@@ -153,7 +160,7 @@ void handler::receive_payload() {
 		/* register message and send back its id */
 		{
 			uint32_t id = nonce_gen32();
-			auto pair = g_messages.insert(make_pair(id, registered_msg(time(NULL), msg)));
+			auto pair = g_messages[this->id].insert(make_pair(id, registered_msg(time(NULL), msg)));
 			g_log<CTRL>("Registering message ", regid, (struct bitcoin::packed_message *) msg->payload);
 			uint32_t netorder;
 			if (pair.second) {
@@ -223,6 +230,7 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 				io.stop();
 				close(io.fd);
 				io.fd = -1;
+				
 				g_active_handlers.erase(this);
 				g_inactive_handlers.insert(this);
 				//delete this; This was in the examples, but makes

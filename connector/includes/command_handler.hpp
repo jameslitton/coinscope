@@ -58,12 +58,7 @@ public:
 	void receive_payload();
 	void handle_message_recv(const struct command_msg *msg);
 	void io_cb(ev::io &watcher, int revents);
-	~handler() { 
-		if (io.fd >= 0) {
-			io.stop();
-			close(io.fd);
-		}
-	}
+	~handler();
 private:
 	void do_read(ev::io &watcher, int revents);
 	void do_write(ev::io &watcher, int revents);

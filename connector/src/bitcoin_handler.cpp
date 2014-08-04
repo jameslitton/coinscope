@@ -185,6 +185,18 @@ void handler::handle_message_recv(const struct packed_message *msg) {
 		append_for_write(get_message("inv", payload));
 	} else if (false && strcmp(msg->command, "getaddr") == 0) { /* need to be careful about pollution, placeholder */
 		// see commit 9f30aa21efe3080b004d5a48ef7be46e9b88e9a5 for placeholder code here 
+	} else if (strcmp(msg->command, "version") == 0) {
+		/* start height is 5 bytes from the end... */
+#pragma GCC diagnostic ignored "-Wstrict-aliasing"
+		int32_t given_block = *((int32_t*) (msg->payload + msg->length - 5));
+#pragma GCC diagnostic warning "-Wstrict-aliasing"
+		//cerr << "given block is " << given_block << "\n";
+		if (given_block < 400000 && given_block > g_last_block) {
+			/* TODO: correct behavior? */
+			// There are some weird big given blocks out there.
+			g_last_block = given_block;
+		}
+
 	}
 }
 
@@ -286,7 +298,7 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 				break;
 			case RECV_VERSION_INIT: // we initiated handshake, we expect ack
 				// next message should be zero length header with verack command
-				g_log<BITCOIN_MSG>(id, false, msg);
+				handle_message_recv(msg);
 				state = (state & SEND_MASK) | RECV_HEADER;
 				read_queue.cursor(0);
 				read_queue.to_read(sizeof(struct packed_message));
@@ -296,7 +308,7 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 				state = (state & SEND_MASK) | RECV_VERSION_REPLY;
 				break;
 			case RECV_VERSION_REPLY: // they initiated handshake, send our version and verack
-				g_log<BITCOIN_MSG>(id, false, msg);
+				handle_message_recv(msg);
 				read_queue.cursor(0);
 				read_queue.to_read(sizeof(struct packed_message));
 					

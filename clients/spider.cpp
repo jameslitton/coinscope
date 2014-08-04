@@ -37,6 +37,8 @@
 using namespace std;
 using namespace ctrl;
 
+size_t g_successful_connects = 0;
+
 uint32_t g_msg_id; /* left in network byte order */
 
 mutex g_visit_mux;
@@ -147,12 +149,10 @@ int main(int argc, char *argv[]) {
 	message->payload.local_addr.sin_port = hton(static_cast<uint16_t>(0xdead));
 
 
-	cout << "Queuing up message of size " << sizeof(struct connect_message) << " on line " << __LINE__ << endl;
 	pending_messages.push_back(make_pair(buf, sizeof(struct connect_message)));
 
 	/* okay, start up worker thread */
 
-	thread cxn_watcher(watch_cxn, cfg);
 	thread fetcher(fetch_addrs, cfg);
 	cxn_watcher.detach();
 	fetcher.detach();
@@ -181,7 +181,6 @@ int main(int argc, char *argv[]) {
 				auto p = visited.insert(con_msg->payload.remote_addr);
 				if (p.second) { /* Did not attempt to connect to him yet */
 					assert(pmf.second == sizeof(*con_msg));
-					cout << "Issuing connect request\n";
 					do_write(sock, con_msg, pmf.second);
 
 				}
@@ -252,7 +251,6 @@ void handle_message(read_buffer &input_buf) {
 			{
 				unique_lock<mutex> lck(g_visit_mux);
 				auto p(make_pair(buf, sizeof(*message)));
-				cout << "Queuing up message of size " << p.second << " on line " << __LINE__ << endl;
 				pending_messages.push_back(p);
 			}
 
@@ -284,12 +282,12 @@ void watch_cxn(const libconfig::Config *cfg) {
 		                cmsg->message_id = g_msg_id; /* already in NBO */
 		                cmsg->target_cnt = hton(1);
 		                cmsg->targets[0] = hton(bc_msg->handle_id);
-		                cout << "successful connect to " << *((struct sockaddr*) &bc_msg->remote) << endl;
+		                cout << '(' << g_successful_connects << ") successful connect to " << *((struct sockaddr*) &bc_msg->remote) << endl;
+		                g_successful_connects += 1;
 
 		                auto p = make_pair(buf, total_len);
 		                {
 			                unique_lock<mutex> lock(g_visit_mux);
-			                cout << "Queuing up message of size " << p.second << " on line " << __LINE__ << endl;
 			                pending_messages.push_back(p);
 		                }
 		                g_visit_cond.notify_all();
