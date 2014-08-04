@@ -153,6 +153,7 @@ int main(int argc, char *argv[]) {
 
 	/* okay, start up worker thread */
 
+	thread cxn_watcher(watch_cxn, cfg);
 	thread fetcher(fetch_addrs, cfg);
 	cxn_watcher.detach();
 	fetcher.detach();
