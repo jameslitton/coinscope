@@ -108,6 +108,7 @@ void handler::receive_header() {
 	wrapped_buffer<uint8_t> readbuf = read_queue.extract_buffer();
 	const struct message *msg = (const struct message*) readbuf.const_ptr();
 	read_queue.to_read(ntoh(msg->length));
+	g_log<DEBUG>("Waiting for length of ", ntoh(msg->length));
 	if (msg->version != 0) {
 		g_log<DEBUG>("Warning: Unsupported version");
 		
@@ -313,6 +314,7 @@ void accept_handler::io_cb(ev::io &watcher, int /* revents */) {
 	int client;
 	try {
 		client = Accept(watcher.fd, &addr, &len);
+		fcntl(client, F_SETFL, O_NONBLOCK);
 	} catch (network_error &e) {
 		if (e.error_code() != EWOULDBLOCK && e.error_code() != EAGAIN) {
 			g_log<ERROR>(e.what(), "(command_handler)");

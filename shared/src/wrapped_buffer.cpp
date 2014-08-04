@@ -6,7 +6,6 @@
 #include <map>
 #include <stdexcept>
 
-
 #include <cstdlib>
 
 #include "wrapped_buffer.hpp"
@@ -53,8 +52,8 @@ wrapped_buffer<T>::wrapped_buffer(wrapped_buffer &&moved)
 	: mbuffer_(moved.mbuffer_),
 	  abuffer_(moved.abuffer_)
 {
-	mbuffer_ = nullptr;
-	abuffer_ = nullptr;
+	moved.mbuffer_ = nullptr;
+	moved.abuffer_ = nullptr;
 }
 
 template <typename T> 
