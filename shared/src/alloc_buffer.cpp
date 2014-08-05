@@ -7,6 +7,7 @@
 #include <stdexcept>
 
 
+#include <iostream> 
 #include <cstdlib>
 
 #include "alloc_buffer.hpp"
@@ -97,6 +98,7 @@ void alloc_buffer<T>::realloc(size_type new_elt_cnt) {
 
 		POD_T * newbuf = (POD_T*) ::realloc(buffer_, size);
 		if (newbuf == nullptr) {
+			cerr << "realloc error with size " << size << endl;
 			throw std::runtime_error(string("realloc failure: ") + strerror(errno));
 		}
 		if (size > allocated_) {

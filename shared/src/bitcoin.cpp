@@ -170,16 +170,3 @@ unique_ptr<struct packed_message> get_message(const char *command, const uint8_t
    
 };
 
-namespace iobuf_spec {
-template <> void append<bitcoin::packed_message>(iobuf *buf, const bitcoin::packed_message *ptr) {
-	append(buf, (const uint8_t*)ptr, sizeof(*ptr) + ptr->length);
-}
-
-template <> void append<unique_ptr<bitcoin::packed_message, void(*)(void*)> >(iobuf *buf, const unique_ptr<bitcoin::packed_message, void(*)(void*)> *ptr) {
-	/* this is really here because it not being here caused a bug once. */
-	append(buf, (const uint8_t*)(ptr)->get(), sizeof(struct bitcoin::packed_message) + (*ptr)->length);
-}
-
-};
-
-

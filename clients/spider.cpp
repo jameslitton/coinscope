@@ -6,6 +6,7 @@
 /* standard C++ libraries */
 #include <iostream>
 #include <utility>
+#include <map>
 #include <stack>
 #include <memory>
 #include <set>
@@ -21,6 +22,7 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/mman.h>
 
 
 #include "network.hpp"
@@ -30,6 +32,7 @@
 #include "logger.hpp"
 #include "read_buffer.hpp"
 #include "bcwatch.hpp"
+#include "lib.hpp"
 
 /* This is a simple test client to demonstrate use of the connector */
 
@@ -47,35 +50,21 @@ condition_variable g_visit_cond;
 void watch_cxn(const libconfig::Config *cfg);
 void fetch_addrs(const libconfig::Config *cfg);
 
-struct connect_message {
-	uint8_t version;
-	uint32_t length;
-	uint8_t message_type;
-	struct connect_payload payload;
-} __attribute__((packed));
-
-inline void do_write(int fd, const void *ptr, size_t len) {
-	size_t so_far = 0;
-	do {
-		ssize_t r = write(fd, (const char *)ptr + so_far, len - so_far);
-		if (r > 0) {
-			so_far += r;
-		} else if (r < 0) {
-			assert(errno != EAGAIN && errno != EWOULDBLOCK); /* don't use this with non-blockers */
-			if (errno != EINTR) {
-				cerr << strerror(errno) << endl;
-				abort();
-			}
-		}
-	} while ( so_far < len);
-}
-
-
-deque<pair<wrapped_buffer<uint8_t>, size_t > > pending_messages;
+struct pm_type { /* used to use a tuple. having the names is nice
+                    though, but that's the reason for the names */
+	wrapped_buffer<uint8_t> buf;
+	size_t size;
+	struct sockaddr_in remote; /* who this is on behalf of */
+	pm_type(wrapped_buffer<uint8_t> &a, size_t b, struct sockaddr_in c) :
+		buf(a), size(b), remote(c) {}
+	wrapped_buffer<uint8_t> first() { return buf; }
+	size_t second() { return size; }
+	struct sockaddr_in third() { return remote; }
+};
+deque<struct pm_type> pending_messages;
 
 struct pvp_comp {
 	bool operator()(const struct sockaddr_in &lhs, const struct sockaddr_in &rhs) {
-		/* byte order doesn't matter, just consistency */
 		int t = lhs.sin_addr.s_addr - rhs.sin_addr.s_addr;
 		if (!t) {
 			t = lhs.sin_port - rhs.sin_port;
@@ -84,12 +73,107 @@ struct pvp_comp {
 	}
 };
 
-set<struct sockaddr_in, pvp_comp> visited;
+struct metrics {
+	time_t connect_time; /* updated each successful connect, 0 if not connected */
+	time_t discovery_time; /* when THIS SPIDER found out about it */
+	time_t getaddr_time; /* when we last did a getaddr */
+};
+
+mutex g_addr_mux;
+map<struct sockaddr_in, struct metrics, pvp_comp> addr_map;
+
+
 
 struct register_getaddr_message {
 	struct message msg;
 	struct bitcoin::packed_message getaddr;
 } __attribute__((packed));
+
+void register_getaddr(int sock) {
+	/* register getaddr message */
+	unique_ptr<struct bitcoin::packed_message> getaddr(bitcoin::get_message("getaddr"));
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+	struct register_getaddr_message to_register = { {0, hton((uint32_t)sizeof(bitcoin::packed_message)), BITCOIN_PACKED_MESSAGE }, {0}};
+#pragma GCC diagnostic warning "-Wmissing-field-initializers"
+
+	memcpy(&to_register.getaddr, getaddr.get(), sizeof(to_register.getaddr));
+
+	do_write(sock, &to_register, sizeof(to_register));
+
+	/* response is to send back a uint32_t in NBO and that's all */
+
+	if (recv(sock, &g_msg_id, sizeof(g_msg_id), MSG_WAITALL) != sizeof(g_msg_id)) {
+		perror("registration read");
+		abort();
+	}
+	cout << "registered message at id " << ntoh(g_msg_id) << endl;
+}
+
+void append_connect(const struct sockaddr_in &remote) {
+	wrapped_buffer<uint8_t> buf(sizeof(struct connect_message));
+	struct connect_message *message = (struct connect_message*) buf.ptr(); /* re-trigger COW check */
+
+	message->version = 0; 
+	message->length = hton((uint32_t)sizeof(connect_payload));
+	message->message_type = CONNECT;
+	message->payload.local_addr.sin_family = AF_INET;
+	message->payload.local_addr.sin_addr.s_addr = 0; /* current version of connector ignores this */
+	message->payload.local_addr.sin_port = 0;
+
+	memcpy(&message->payload.remote_addr, &remote, sizeof(remote));
+	{
+		unique_lock<mutex> lck(g_visit_mux);
+		pending_messages.push_back(pm_type(buf, sizeof(*message), message->payload.remote_addr));
+	}
+}
+
+void append_roots(const char *rootfile) {
+	struct sockaddr_in *addrs;
+	int fd(-1);
+	size_t mult = 0;
+	size_t page_size = sysconf(_SC_PAGE_SIZE);
+	/* if root file is non-null, assume it is just a file serialization of
+	   a struct sockaddr_in array with an all zero entry (family == 0)
+	   to mark the end */
+	if (rootfile)  {
+		fd = open(rootfile, O_RDONLY);
+		if (fd < 0) {
+			throw runtime_error(string("bad file") + strerror(errno));
+		}
+
+		struct stat statbuf;
+		if (stat(rootfile, &statbuf) != 0) {
+			throw runtime_error(string("bad stat") + strerror(errno));
+		}
+
+		size_t size = statbuf.st_size;
+		while(++mult * page_size < size);
+		addrs = (struct sockaddr_in*)mmap(NULL, mult * page_size, PROT_READ, MAP_PRIVATE, fd, 0);
+		if (addrs == MAP_FAILED) {
+			throw runtime_error(string("bad mmap") + strerror(errno));
+		}
+	} else {
+		addrs = new sockaddr_in[2];
+		if (inet_pton(AF_INET, "127.0.0.1", &addrs[0].sin_addr) != 1) {
+			throw runtime_error(string("inet_pton error") + strerror(errno));
+		}
+		addrs[0].sin_port = 8333;
+		bzero(&addrs[1], sizeof(addrs[1]));
+	}
+
+	for(const struct sockaddr_in *cur = addrs; cur->sin_family != 0; ++cur) {
+		cout << "appending " << *((struct sockaddr*)cur) << endl;
+		append_connect(*cur);
+	}
+
+	if (rootfile) {
+		close(fd);
+		munmap(addrs, mult * page_size);
+	} else {
+		delete [] addrs;
+	}
+
+}
 
 int main(int argc, char *argv[]) {
 
@@ -103,53 +187,9 @@ int main(int argc, char *argv[]) {
 
 	int sock = unix_sock_client((const char*)cfg->lookup("connector.control_path"), false);
 
+	append_roots("/tmp/nodelist-C0iOzq");
 
-
-	/* register getaddr message */
-	{
-		unique_ptr<struct bitcoin::packed_message> getaddr(bitcoin::get_message("getaddr"));
-#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
-		struct register_getaddr_message to_register = { {0, hton((uint32_t)sizeof(bitcoin::packed_message)), BITCOIN_PACKED_MESSAGE }, {0}};
-#pragma GCC diagnostic warning "-Wmissing-field-initializers"
-
-		memcpy(&to_register.getaddr, getaddr.get(), sizeof(to_register.getaddr));
-
-		do_write(sock, &to_register, sizeof(to_register));
-
-		/* response is to send back a uint32_t in NBO and that's all */
-
-		if (recv(sock, &g_msg_id, sizeof(g_msg_id), MSG_WAITALL) != sizeof(g_msg_id)) {
-			perror("registration read");
-			abort();
-		}
-		cout << "registered message at id " << ntoh(g_msg_id) << endl;
-	}
-	
-
-	wrapped_buffer<uint8_t> buf(sizeof(struct connect_message));
-	struct connect_message *message = (struct connect_message*) buf.ptr();
-	
-	message->version = 0; 
-	message->length = hton((uint32_t)sizeof(connect_payload));
-	message->message_type = CONNECT;
-
-	message->payload.remote_addr.sin_family = AF_INET;
-	if (inet_pton(AF_INET, "127.0.0.1", &message->payload.remote_addr.sin_addr) != 1) {
-		perror("inet_pton destination");
-		return EXIT_FAILURE;
-	}
-
-	message->payload.local_addr.sin_family = AF_INET;
-	if (inet_pton(AF_INET, "127.0.0.1", &message->payload.local_addr.sin_addr) != 1) {
-		perror("inet_pton source");
-		return EXIT_FAILURE;
-	}
-
-	message->payload.remote_addr.sin_port = hton(static_cast<uint16_t>(8333));
-	message->payload.local_addr.sin_port = hton(static_cast<uint16_t>(0xdead));
-
-
-	pending_messages.push_back(make_pair(buf, sizeof(struct connect_message)));
+	return 0;
 
 	/* okay, start up worker thread */
 
@@ -170,41 +210,62 @@ int main(int argc, char *argv[]) {
 		g_visit_cond.wait(lock, [&]{ return pending_messages.size(); });
 		while(pending_messages.size()) {
 
-
 			auto pmf = pending_messages.front();
 			pending_messages.pop_front();
 
+			bool requeue = false;
+
 			lock.unlock();
 
-			const struct message *msg = (const struct message*) pmf.first.const_ptr();
+			const struct message *msg = (const struct message*) pmf.buf.const_ptr();
 			if (msg->message_type == CONNECT) {
+				bool do_connect = false;
 				const struct connect_message *con_msg  = (const struct connect_message*) msg;
-				cout << "Connect attemp to " << *((struct sockaddr*) &con_msg->payload.remote_addr) << endl;
-				auto p = visited.insert(con_msg->payload.remote_addr);
-				if (p.second) { /* Did not attempt to connect to him yet */
-					assert(pmf.second == sizeof(*con_msg));
-					do_write(sock, con_msg, pmf.second);
-
+				{
+					unique_lock<mutex>(g_addr_mux);
+					auto it = addr_map.find(con_msg->payload.remote_addr);
+					if (it == addr_map.end()) { /* don't know about him yet (i.e., not yet connected) */
+						addr_map[con_msg->payload.remote_addr] = { .connect_time = 0, .discovery_time = time(NULL), .getaddr_time = 0 };
+						do_connect = true;
+					} else if (it->second.connect_time == 0) {
+						do_connect = true;
+					}
 				}
+
+				if (do_connect) {
+					cout << "Connect attempt to " << *((struct sockaddr*) &con_msg->payload.remote_addr) << endl;
+					assert(pmf.size == sizeof(*con_msg));
+					do_write(sock, con_msg, pmf.size);
+				}
+
 			} else {
-				/* some other kind of message, just send it */
-				do_write(sock, msg , pmf.second);
+				/* some other kind of message. Right now just getaddr. Change this if you add others */
+				time_t now = time(NULL);
+				if (now - addr_map[pmf.remote].getaddr_time < 10) { /* let's give 10 seconds between getaddrs */
+					requeue = true;
+				} else {
+					addr_map[pmf.remote].getaddr_time = now;
+					do_write(sock, msg, pmf.size);
+				}
 			}
 
-
 			lock.lock();
-		}
 
+			if (requeue) {
+				pending_messages.push_back(pmf);
+			}
+		}
 	}
 
 	return EXIT_SUCCESS;
 };
 
 bool is_private(uint32_t ip) {
-  uint32_t a = ip & 0x000000FF;
-  uint32_t b = ip & 0x0000FF00;
-
-  return (a == 10 || (a == 192 && b == 168) || (a == 172 && b >= 16 && b <= 31));
+	/* endian assumptions live here */
+	return
+		(0x000000FF & ip) == 10  ||
+		(0x0000FFFF & ip) == (192 | (168 << 8)) ||
+		(0x0000F0FF & ip) == (172 | (16 << 8));
 }
 
 
@@ -235,35 +296,14 @@ void handle_message(read_buffer &input_buf) {
 		total_cnt += count;
 		addrs = (const struct bitcoin::full_packed_net_addr*) (bc_msg->payload + size);
 
-		wrapped_buffer<uint8_t> buf(sizeof(struct connect_message));
-	
-		struct connect_message *message = (struct connect_message*) buf.ptr(); /* re-trigger COW check */
-
-		message->version = 0; 
-		message->length = hton((uint32_t)sizeof(connect_payload));
-		message->message_type = CONNECT;
-
-		message->payload.local_addr.sin_family = AF_INET;
-		if (inet_pton(AF_INET, "127.0.0.1", &message->payload.local_addr.sin_addr) != 1) {
-			perror("inet_pton source");
-			abort();
-		}
-
-
 		for(size_t i = 0; i < count; ++i) {
-		  if (!is_private(addrs[i].rest.addr.ipv4.as.number) && ntoh(addrs[i].rest.port) == 8333) {
-			message = (struct connect_message*) buf.ptr(); /* re-trigger COW check */
-			struct sockaddr_in netaddr;
-			netaddr.sin_family = AF_INET;
-			netaddr.sin_port = addrs[i].rest.port;
-			netaddr.sin_addr = addrs[i].rest.addr.ipv4.as.in_addr;
-			memcpy(&message->payload.remote_addr, &netaddr, sizeof(netaddr));
-			{
-				unique_lock<mutex> lck(g_visit_mux);
-				auto p(make_pair(buf, sizeof(*message)));
-				pending_messages.push_back(p);
+			if (!is_private(addrs[i].rest.addr.ipv4.as.number) && ntoh(addrs[i].rest.port) == 8333) {
+				struct sockaddr_in netaddr = { AF_INET, 
+				                               addrs[i].rest.port, 
+				                               addrs[i].rest.addr.ipv4.as.in_addr, 
+				                               {0}};
+				append_connect(netaddr);
 			}
-		  }
 
 		}
 		if (total_cnt) { 
@@ -296,15 +336,38 @@ void watch_cxn(const libconfig::Config *cfg) {
 		                cout << '(' << g_successful_connects << ") successful connect to " << *((struct sockaddr*) &bc_msg->remote) << endl;
 		                g_successful_connects += 1;
 
-		                auto p = make_pair(buf, total_len);
+		                {
+			                unique_lock<mutex> lock(g_addr_mux);
+			                auto it = addr_map.find(bc_msg->remote);
+			                if (it != addr_map.end()) {
+				                it->second.connect_time = time(NULL);
+			                } else { /* we are learning about this for the first time */
+				                addr_map[bc_msg->remote] = { .connect_time = time(NULL), .discovery_time = time(NULL), .getaddr_time = time(NULL) };
+			                }
+		                }
+
+		                struct pm_type p(buf, total_len, bc_msg->remote);
 		                {
 			                unique_lock<mutex> lock(g_visit_mux);
-			                pending_messages.push_back(p);
+			                for(size_t i = 0; i < 8; ++i) {
+				                pending_messages.push_back(p);
+			                }
 		                }
 		                g_visit_cond.notify_all();
 	                },
 	                [](struct bc_channel_msg *msg) {
-		                cout << "Unsuccessful connect. Details follow: " << endl;
+
+		                {
+			                unique_lock<mutex> lock(g_addr_mux);
+			                auto it = addr_map.find(msg->remote);
+			                if (it != addr_map.end()) {
+				                it->second.connect_time = 0;
+			                } else { 
+				                cerr << "Got a disconnect from someone you didn't know exists...\n";
+			                }
+		                }
+
+		                cout << "Unsuccessful connect. " << endl;
 		                cout << "\ttime: " << msg->time << endl;
 		                cout << "\tupdate_type: " << msg->update_type << endl;
 		                cout << "\tremote: " << *((struct sockaddr*) &msg->remote) << endl;

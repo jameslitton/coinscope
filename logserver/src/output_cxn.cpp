@@ -92,7 +92,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 			
 			if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
 				/* most probably a disconnect of some sort, log error and queue object for deletion */
-				cerr << "Received error on write: " << strerror(errno);
+				cerr << "Received error on write: " << strerror(errno) << endl;
 				suicide();
 				return;
 			} 

@@ -12,18 +12,18 @@
 namespace ctrl {
 
 enum commands {
-	COMMAND_GET_CXN,
-	COMMAND_DISCONNECT,
-	COMMAND_SEND_MSG
+	COMMAND_GET_CXN = 1,
+	COMMAND_DISCONNECT = 2,
+	COMMAND_SEND_MSG = 3
 };
 
 const uint32_t BROADCAST_TARGET(0xFFFFFFFF);
 
 enum message_types {
-	BITCOIN_PACKED_MESSAGE,
-	COMMAND,
-	REGISTER,
-	CONNECT,
+	BITCOIN_PACKED_MESSAGE = 1,
+	COMMAND = 2,
+	REGISTER= 3,
+	CONNECT = 4,
 };
 
 struct message {
@@ -48,12 +48,6 @@ struct connection_info { /* response to COMMAND_GET_CXN && part of response for 
 } __attribute__((packed));
 
 
-struct connect_response {
-	int32_t result; /* this is zero on success, or errno on failure, Network byte order */
-	uint32_t registration_id; /* id of the agent connection is made for (should be the sender/redundant) NBO */
-	struct connection_info info;
-} __attribute__((packed));
-
 struct command_msg {
 	uint8_t command;
 	uint32_t message_id; /* network byte order */
@@ -63,7 +57,7 @@ struct command_msg {
 
 	uint32_t target_cnt; /* network byte order */
 	uint32_t targets[0]; /* network byte order */
-};
+} __attribute__((packed));
 
 /*
   send_message(length, message) //returns message id
