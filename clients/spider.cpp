@@ -187,7 +187,7 @@ int main(int argc, char *argv[]) {
 
 	int sock = unix_sock_client((const char*)cfg->lookup("connector.control_path"), false);
 
-	append_roots("/tmp/nodelist-C0iOzq");
+	append_roots(NULL);
 
 	return 0;
 
