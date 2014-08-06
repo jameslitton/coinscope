@@ -387,7 +387,7 @@ void watch_cxn(const libconfig::Config *cfg) {
 		                append_getaddr(bc_msg->handle_id, bc_msg->remote);
 		                cout << '(' << g_successful_connects << ") successful connect to " << *((struct sockaddr*) &bc_msg->remote) << endl;
 		                g_successful_connects += 1;
-		                g_outstanding_connects = min((size_t)0, g_outstanding_connects - 1);
+		                g_outstanding_connects = (g_outstanding_connects == 0) ? (size_t) 0 : g_outstanding_connects - 1;
 
 		                {
 			                unique_lock<mutex> lock(g_map_mux);
@@ -401,6 +401,7 @@ void watch_cxn(const libconfig::Config *cfg) {
 	                },
 	                [](struct bc_channel_msg *msg) {
 		                g_outstanding_connects = min((size_t)0, g_outstanding_connects - 1);
+		                g_outstanding_connects = (g_outstanding_connects == 0) ? (size_t) 0 : g_outstanding_connects - 1;
 		                {
 			                unique_lock<mutex> lock(g_map_mux);
 			                auto it = addr_map.find(msg->remote);
