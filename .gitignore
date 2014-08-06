@@ -1,0 +1,9 @@
+*.[oa]
+*~
+clients/connect
+clients/get_nodes
+clients/spider
+connector/main
+logclient/console
+logclient/verbatim
+logserver/main
