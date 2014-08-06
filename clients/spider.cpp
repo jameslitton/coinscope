@@ -184,7 +184,8 @@ void append_roots(const char *rootfile) {
 		if (inet_pton(AF_INET, "127.0.0.1", &addrs[0].sin_addr) != 1) {
 			throw runtime_error(string("inet_pton error") + strerror(errno));
 		}
-		addrs[0].sin_port = 8333;
+		addrs[0].sin_family = AF_INET;
+		addrs[0].sin_port = htons(8333);
 		bzero(&addrs[1], sizeof(addrs[1]));
 	}
 
