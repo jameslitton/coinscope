@@ -47,6 +47,7 @@ uint32_t g_msg_id; /* left in network byte order */
 
 void watch_cxn(const libconfig::Config *cfg);
 void fetch_addrs(const libconfig::Config *cfg);
+void append_getaddr(uint32_t handle, const struct sockaddr_in &remote);
 
 struct pm_type { /* used to use a tuple. having the names is nice
                     though, but that's the reason for the names */
@@ -74,7 +75,6 @@ priority_queue<pm_type, vector<pm_type>, pm_cmp> pending_getaddr;
 mutex g_connect_mux;
 deque<struct pm_type> pending_connects;
 
-
 struct addr_cmp {
 	bool operator()(const struct sockaddr_in &lhs, const struct sockaddr_in &rhs) {
 		int t = lhs.sin_addr.s_addr - rhs.sin_addr.s_addr;
@@ -86,9 +86,15 @@ struct addr_cmp {
 };
 
 struct metrics {
-	time_t connect_time; /* updated each successful connect, 0 if not connected */
-	time_t discovery_time; /* when THIS SPIDER found out about it */
+	time_t connect_time; /* updated each successful connect. If unknown set when discovered, 0 if not connected */
 	time_t getaddr_time; /* when we last did a getaddr */
+	metrics(time_t a, time_t b) : connect_time(a), getaddr_time(b) {}
+	metrics() : metrics(0,0) {}
+	metrics & operator=(const metrics &m) { 
+		connect_time = m.connect_time;
+		getaddr_time = m.getaddr_time; 
+		return *this; 
+	}
 };
 
 mutex g_map_mux;
@@ -122,8 +128,17 @@ void register_getaddr(int sock) {
 }
 
 void append_connect(const struct sockaddr_in &remote) {
+
+	{
+		unique_lock<mutex> lck(g_map_mux);
+		auto it = addr_map.find(remote);
+		if (it != addr_map.end() && it->second.connect_time != 0) { /* already connected */
+			return;
+		}
+	}
+
 	wrapped_buffer<uint8_t> buf(sizeof(struct connect_message));
-	struct connect_message *message = (struct connect_message*) buf.ptr(); /* re-trigger COW check */
+	struct connect_message *message = (struct connect_message*) buf.ptr();
 
 	message->version = 0; 
 	message->length = hton((uint32_t)sizeof(connect_payload));
@@ -200,12 +215,11 @@ void do_getaddrs(int sock, time_t now) {
 			addr_map[topaddr.remote].getaddr_time = now;
 		}
 		do_write(sock, topaddr.buf.const_ptr(), topaddr.size);
-
 		lock.lock();
 	}
 }
 
-const size_t MAX_ONGOING_CONNECTS(100);
+const size_t MAX_ONGOING_CONNECTS(1000);
 
 void do_connects(int sock) {
 	unique_lock<mutex> lock(g_connect_mux);
@@ -224,7 +238,7 @@ void do_connects(int sock) {
 			unique_lock<mutex> map_lock(g_map_mux);
 			auto it = addr_map.find(con_msg->payload.remote_addr);
 			if (it == addr_map.end()) { /* don't know about him yet (i.e., not yet connected) */
-				addr_map[con_msg->payload.remote_addr] = { .connect_time = 0, .discovery_time = time(NULL), .getaddr_time = 0 };
+				addr_map[con_msg->payload.remote_addr] = metrics(0,0);
 				do_connect = true;
 			} else if (it->second.connect_time == 0) {
 				do_connect = true;
@@ -260,7 +274,16 @@ int main(int argc, char *argv[]) {
 
 	int sock = unix_sock_client((const char*)cfg->lookup("connector.control_path"), false);
 
+	register_getaddr(sock);
 	append_roots(NULL);
+
+
+	time_t now(time(NULL));
+	get_all_cxn(sock, [&](struct connection_info *info, size_t ) {
+			unique_lock<mutex> lck(g_map_mux);
+			addr_map[info->remote_addr].connect_time = now;
+			append_getaddr(info->handle_id, info->remote_addr);
+		});
 
 	/* okay, start up worker thread */
 
@@ -277,8 +300,9 @@ int main(int argc, char *argv[]) {
 
 	while(true) {
 
-		time_t now(0);
+		now = time(NULL);
 
+		/* TODO: fix busy wait on this thread */
 		do_getaddrs(sock, now);
 		do_connects(sock);
 
@@ -328,6 +352,29 @@ void handle_message(read_buffer &input_buf) {
 	}
 }
 
+void append_getaddr(uint32_t handle_id, const struct sockaddr_in &remote) {
+	size_t total_len = sizeof(struct message) + sizeof(command_msg) + 4; /* room for one target */
+	wrapped_buffer<uint8_t> buf(total_len);
+	struct message *msg = (struct message *) buf.ptr();
+	struct command_msg *cmsg = (struct command_msg*) ((uint8_t*) msg + sizeof(struct message));
+	msg->version = 0;
+	msg->length = hton((uint32_t)sizeof(*cmsg) + 4);
+	msg->message_type = COMMAND;
+
+	cmsg->command = COMMAND_SEND_MSG;
+	cmsg->message_id = g_msg_id; /* already in NBO */
+	cmsg->target_cnt = hton(1);
+	cmsg->targets[0] = hton(handle_id);
+
+	{
+		unique_lock<mutex> lock(g_getaddr_mux);
+		time_t now(time(NULL));
+		for(size_t i = 0; i < 8; ++i) {
+			pending_getaddr.push(pm_type(buf, total_len, remote, now + i * 10));
+		}
+	}
+}
+
 
 void watch_cxn(const libconfig::Config *cfg) {
 	string root((const char*)cfg->lookup("logger.root"));
@@ -336,22 +383,10 @@ void watch_cxn(const libconfig::Config *cfg) {
 	int bitcoin_client = unix_sock_client(client_dir + "bitcoin", false);
 	bcwatch watcher(bitcoin_client, 
 	                [](struct bc_channel_msg *bc_msg) {
-
-		                size_t total_len = sizeof(struct message) + sizeof(command_msg) + 4; /* room for one target */
-		                wrapped_buffer<uint8_t> buf(total_len);
-		                struct message *msg = (struct message *) buf.ptr();
-		                struct command_msg *cmsg = (struct command_msg*) ((uint8_t*) msg + sizeof(struct message));
-		                msg->version = 0;
-		                msg->length = hton((uint32_t)sizeof(*cmsg) + 4);
-		                msg->message_type = COMMAND;
-
-		                cmsg->command = COMMAND_SEND_MSG;
-		                cmsg->message_id = g_msg_id; /* already in NBO */
-		                cmsg->target_cnt = hton(1);
-		                cmsg->targets[0] = hton(bc_msg->handle_id);
+		                append_getaddr(bc_msg->handle_id, bc_msg->remote);
 		                cout << '(' << g_successful_connects << ") successful connect to " << *((struct sockaddr*) &bc_msg->remote) << endl;
 		                g_successful_connects += 1;
-g_outstanding_connects = min((size_t)0, g_outstanding_connects - 1);
+		                g_outstanding_connects = min((size_t)0, g_outstanding_connects - 1);
 
 		                {
 			                unique_lock<mutex> lock(g_map_mux);
@@ -359,15 +394,7 @@ g_outstanding_connects = min((size_t)0, g_outstanding_connects - 1);
 			                if (it != addr_map.end()) {
 				                it->second.connect_time = time(NULL);
 			                } else { /* we are learning about this for the first time */
-				                addr_map[bc_msg->remote] = { .connect_time = time(NULL), .discovery_time = time(NULL), .getaddr_time = time(NULL) };
-			                }
-		                }
-
-		                {
-			                unique_lock<mutex> lock(g_getaddr_mux);
-			                time_t now(time(NULL));
-			                for(size_t i = 0; i < 8; ++i) {
-				                pending_getaddr.push(pm_type(buf, total_len, bc_msg->remote, now + i * 10));
+				                addr_map[bc_msg->remote] = { .connect_time = time(NULL), .getaddr_time = time(NULL) };
 			                }
 		                }
 	                },

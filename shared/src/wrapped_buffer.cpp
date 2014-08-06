@@ -22,6 +22,7 @@ wrapped_buffer<T>::wrapped_buffer(size_type initial_elements)
 	: mbuffer_(nullptr),
 	  abuffer_(nullptr)
 {
+	initial_elements = max(initial_elements, (size_type) 1);
 	size_t size = initial_elements * sizeof(POD_T);
 	if (size > MMAP_THRESHOLD) {
 		mbuffer_ = new mmap_buffer<T>(initial_elements);
