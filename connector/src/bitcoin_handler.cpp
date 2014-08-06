@@ -74,8 +74,8 @@ void connect_handler::io_cb(ev::io &watcher, int /*revents*/) {
 		char *err = strerror(errno);
 		uint32_t len = strlen(err);
 		io.stop();
-		io.fd = -1;
 		close(io.fd);
+		io.fd = -1;
 		g_inactive_connection_handlers.insert(this);
 		struct sockaddr_in local;
 		bzero(&local, sizeof(local));
