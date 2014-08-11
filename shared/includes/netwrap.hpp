@@ -38,44 +38,44 @@ inline void do_error(int is_error, const char *str, int err) {
 
 inline int Socket(int domain, int type, int protocol) {
 	int rv = socket(domain, type, protocol);
-	do_error(rv == -1, "socket failure", rv);
+	do_error(rv == -1, "socket failure", errno);
 	return rv;
 }
 
 inline int Bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
 	int rv = bind(sockfd, addr, addrlen);
-	do_error(rv == -1, "bind failure", rv);
+	do_error(rv == -1, "bind failure", errno);
 	return rv;
 }
 
 inline int Listen(int sockfd, int backlog) {
 	int rv = listen(sockfd, backlog);
-	do_error(rv == -1, "listen failure", rv);
+	do_error(rv == -1, "listen failure", errno);
 	return rv;
 }
 
 
 inline int Accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 	int rv = accept(sockfd, addr, addrlen);
-	do_error(rv == -1, "accept failure", rv);
+	do_error(rv == -1, "accept failure", errno);
 	return rv;
 }
 
 inline int Connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
 	int rv = connect(sockfd, addr, addrlen);
-	do_error(rv == -1, "connect failure", rv);
+	do_error(rv == -1, "connect failure", errno);
 	return rv;
 }
 
 inline int Socketpair(int domain, int type, int protocol, int sv[2]) {
 	int rv = socketpair(domain, type, protocol, sv);
-	do_error(rv == -1, "Socketpair failure", rv);
+	do_error(rv == -1, "Socketpair failure", errno);
 	return rv;
 }
 
 inline pid_t Fork() {
 	pid_t rv = fork();
-	do_error(rv < 0, "fork failure", rv);
+	do_error(rv < 0, "fork failure", errno);
 	return rv;
 }
 
