@@ -1,4 +1,4 @@
-LDLIBS=-lcrypto -lconfig++ -lev -lpthread
+LDLIBS=-lconfig++ -lev -lpthread
 include ../makefile.defs
 
 all: connect spider get_nodes

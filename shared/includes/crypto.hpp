@@ -7,6 +7,7 @@
 #include <vector>
 #include <memory>
 
+std::unique_ptr<unsigned char[]> sha256_ssl(const uint8_t *data, size_t len);
 std::unique_ptr<unsigned char[]> sha256(const uint8_t *data, size_t len);
 std::unique_ptr<unsigned char[]> sha256(const std::unique_ptr<unsigned char[]> & data, size_t len);
 std::unique_ptr<unsigned char[]> sha256(const std::vector<uint8_t> & data);
