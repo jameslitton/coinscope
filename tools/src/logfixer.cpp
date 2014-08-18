@@ -26,6 +26,10 @@
 
 using namespace std;
 
+/* there WAS a bug with verbatim where length prefixes weren't
+   printed. You probably do not need this file. Committing for
+   posterity/adaptability for potential future problems */
+
 pair<const uint8_t *,size_t> get_bytes(const char *filename) {
 	int fd = open(filename, O_RDONLY);
 	if (fd < 0) {

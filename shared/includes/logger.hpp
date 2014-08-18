@@ -47,7 +47,7 @@ std::string type_to_str(enum log_type type);
 
 /* general log format: */
 // uint8_t type
-// uint32_t timestamp /* network byte order */
+// uint64_t timestamp /* network byte order */
 // The rest... (stringstreamed i.e., operator<<(ostream, rest) done)
 
 /* Log format for BITCOIN types */
