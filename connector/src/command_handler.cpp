@@ -119,7 +119,6 @@ void handler::receive_header() {
 	wrapped_buffer<uint8_t> readbuf = read_queue.extract_buffer();
 	const struct message *msg = (const struct message*) readbuf.const_ptr();
 	read_queue.to_read(ntoh(msg->length));
-	g_log<DEBUG>("Waiting for length of ", ntoh(msg->length));
 	if (msg->version != 0) {
 		g_log<DEBUG>("Warning: Unsupported version", (int)msg->version);
 		

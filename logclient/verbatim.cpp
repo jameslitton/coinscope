@@ -68,7 +68,6 @@ int main(int argc, char *argv[]) {
 		if (!input_buf.hungry()) {
 			if (reading_len) {
 				uint32_t netlen = *((const uint32_t*) input_buf.extract_buffer().const_ptr());
-				input_buf.cursor(0);
 				input_buf.to_read(ntoh(netlen));
 				reading_len = false;
 			} else {

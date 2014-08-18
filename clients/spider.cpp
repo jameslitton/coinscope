@@ -242,7 +242,9 @@ void do_connects(int sock) {
 				addr_map[con_msg->payload.remote_addr] = metrics(0,0);
 				do_connect = true;
 			} else if (it->second.connect_time == 0) {
-				do_connect = true;
+				/* this is a case where we know about the person, but are not connected to them yet for whatever reason. We don't want to attempt to connect again here after all */
+
+				//do_connect = true; 
 			}
 		}
 
