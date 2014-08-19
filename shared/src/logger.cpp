@@ -172,15 +172,15 @@ ostream & operator<<(ostream &o, const struct bitcoin::packed_message &m) {
 ostream & operator<<(ostream &o, const struct sockaddr &addr) {
 	char str[24];
 	if (addr.sa_family == AF_INET) {
-		const struct sockaddr_in *saddr = (struct sockaddr_in*)&addr;
+		const struct sockaddr_in *saddr = (const struct sockaddr_in*)&addr;
 		inet_ntop(addr.sa_family, &saddr->sin_addr, str, sizeof(str));
 		o << str << ':' << ntoh(saddr->sin_port);
 	} else if (addr.sa_family == AF_INET6) {
-		const struct sockaddr_in6 *saddr = (struct sockaddr_in6*)&addr;
+		const struct sockaddr_in6 *saddr = (const struct sockaddr_in6*)&addr;
 		inet_ntop(addr.sa_family, &saddr->sin6_addr, str, sizeof(str));
 		o << str << ':' << ntoh(saddr->sin6_port);
 	} else {
-		cerr << "add support converting other addr types";
+		o << str << "unsupported addr family: " << addr.sa_family;
 	}
 	return o;
 }
