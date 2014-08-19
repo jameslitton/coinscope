@@ -186,7 +186,7 @@ void handler::receive_payload() {
 			/* format is remote packed_net_addr, local packed_net_addr */
 			/* currently local is ignored, but would be used if we bound to more than one interface */
 			struct connect_payload *payload = (struct connect_payload*) msg->payload;
-			g_log<CTRL>("Attempting to connect for", regid);
+			g_log<CTRL>("Attempting to connect to", payload->remote_addr, "for", regid);
 
 			int fd(-1);
 			// TODO: setting local on the client does nothing, but could specify the interface used
@@ -225,23 +225,14 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 			r = res.first;
 			if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN) { 
 				g_log<ERROR>(strerror(errno), "(command_handler)");
+				suicide();
+				return;
 			}
 
 			if (r == 0) { /* got disconnected! */
 				/* LOG disconnect */
 				g_log<CTRL>("Orderly disconnect", id);
-				io.stop();
-				close(io.fd);
-				io.fd = -1;
-				
-				g_active_handlers.erase(this);
-				g_inactive_handlers.insert(this);
-				//delete this; This was in the examples, but makes
-				//valgrind warn because it still gets referenced by libev
-				//before the handler loop completes (my guess is to just
-				//remove it from a list). Still, I move it and it gets
-				//collected next time someone connects. We'll see if that
-				//quiets valgrind.
+				suicide();
 				return;
 			}
 		}
@@ -264,6 +255,22 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 	}
 }
 
+void handler::suicide() {
+
+	io.stop();
+	close(io.fd);
+	io.fd = -1;
+				
+	g_active_handlers.erase(this);
+	g_inactive_handlers.insert(this);
+	//delete this; This was in the examples, but makes
+	//valgrind warn because it still gets referenced by libev
+	//before the handler loop completes (my guess is to just
+	//remove it from a list). Still, I move it and it gets
+	//collected next time someone connects. We'll see if that
+	//quiets valgrind.
+}
+
 void handler::do_write(ev::io &watcher, int /* revents */) {
 
 	ssize_t r(1);
@@ -272,6 +279,8 @@ void handler::do_write(ev::io &watcher, int /* revents */) {
 		r = res.first;
 		if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN) { 
 			g_log<ERROR>(strerror(errno), "(command_handler)");
+			suicide();
+			return;
 		}
 	}
 

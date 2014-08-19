@@ -66,7 +66,7 @@ void connect_handler::io_cb(ev::io &watcher, int /*revents*/) {
 	if (rv == 0) {
 		setup_handler(watcher.fd);
 		io.stop();
-		io.fd = -1;
+		io.fd = -1; // Do not close. handler in setup_handler owns fd now 
 		g_inactive_connection_handlers.insert(this);
 	} else if (errno == EALREADY || errno == EINPROGRESS) {
 		/* spurious event. */
@@ -89,8 +89,6 @@ connect_handler::~connect_handler() {
 	   bc::handler now, if anyone. */
 	assert(! io.is_active());
 }
-
-
 
 
 accept_handler::accept_handler(int fd, const struct sockaddr_in &a_local_addr)
@@ -118,7 +116,8 @@ void accept_handler::io_cb(ev::io &watcher, int /*revents*/) {
 		fcntl(client, F_SETFL, O_NONBLOCK);		
 	} catch (network_error &e) {
 		if (e.error_code() != EWOULDBLOCK && e.error_code() != EAGAIN && e.error_code() != EINTR) {
-			g_log<ERROR>(e.what(), "(bitcoin_handler)");
+			g_log<ERROR>(e.what(), "(bitcoin_handler)", watcher.fd);
+			
 			/* trigger destruction of self via some kind of queue and probably recreate channel! */
 		}
 		return;
@@ -202,8 +201,11 @@ void handler::handle_message_recv(const struct packed_message *msg) {
 
 handler::~handler() { 
 	if (io.fd >= 0) {
+		/* This shouldn't normally ever be destructed unless it is in the inactive_handler set, so this path shouldn't happen, but if so, don't leak */
 		io.stop();
 		close(io.fd);
+		io.fd = -1;
+		g_active_handlers.erase(id);
 	}
 }
 
@@ -213,7 +215,6 @@ void handler::suicide() {
 	io.fd = -1;
 	g_active_handlers.erase(id);
 	g_inactive_handlers.insert(this);
-	//delete this; See commend in command_handler.cpp 
 }
 
 void handler::append_for_write(const struct packed_message *m) {
