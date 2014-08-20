@@ -330,7 +330,7 @@ accept_handler::~accept_handler() {
 
 void accept_handler::io_cb(ev::io &watcher, int /* revents */) {
 	struct sockaddr addr = {0, {0}};
-	socklen_t len(0);
+	socklen_t len(sizeof(addr));
 	int client;
 	try {
 		client = Accept(watcher.fd, &addr, &len);

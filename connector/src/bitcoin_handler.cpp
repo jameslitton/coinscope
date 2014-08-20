@@ -33,8 +33,8 @@ connect_handler::connect_handler(int fd, const struct sockaddr_in &remote_addr)
 	for(auto it = g_inactive_connection_handlers.begin(); it != g_inactive_connection_handlers.end(); ++it) {
 		delete *it;
 	}
-	g_inactive_connection_handlers.clear();
 
+	g_inactive_connection_handlers.clear();
 
 	/* first try it */
 	int rv = connect(fd, (struct sockaddr*)&remote_addr_, sizeof(remote_addr_));
@@ -63,11 +63,13 @@ void connect_handler::setup_handler(int fd) {
 void connect_handler::io_cb(ev::io &watcher, int /*revents*/) {
 	int rv = connect(watcher.fd, (struct sockaddr*)&remote_addr_, sizeof(remote_addr_));
 
+	bool is_inactive = false;
+
 	if (rv == 0) {
 		setup_handler(watcher.fd);
 		io.stop();
 		io.fd = -1; // Do not close. handler in setup_handler owns fd now 
-		g_inactive_connection_handlers.insert(this);
+		is_inactive = true;
 	} else if (errno == EALREADY || errno == EINPROGRESS) {
 		/* spurious event. */
 	} else {
@@ -76,11 +78,19 @@ void connect_handler::io_cb(ev::io &watcher, int /*revents*/) {
 		io.stop();
 		close(io.fd);
 		io.fd = -1;
-		g_inactive_connection_handlers.insert(this);
+		is_inactive = true;
 		struct sockaddr_in local;
 		bzero(&local, sizeof(local));
 		local.sin_family = AF_INET; /* there is no local connection actually */
 		g_log<BITCOIN>(CONNECT_FAILURE, 0, remote_addr_, local, err, len+1);
+	}
+	
+	if (is_inactive) {
+		for(auto it = g_inactive_connection_handlers.begin(); it != g_inactive_connection_handlers.end(); ++it) {
+			delete *it;
+		}
+		g_inactive_connection_handlers.clear();
+		g_inactive_connection_handlers.insert(this);
 	}
 }
 
@@ -109,14 +119,14 @@ accept_handler::~accept_handler() {
 
 void accept_handler::io_cb(ev::io &watcher, int /*revents*/) {
 	struct sockaddr_in addr;
-	socklen_t len;
+	socklen_t len(sizeof(addr));
 	int client;
 	try {
 		client = Accept(watcher.fd, (struct sockaddr*)&addr, &len);
 		fcntl(client, F_SETFL, O_NONBLOCK);		
 	} catch (network_error &e) {
 		if (e.error_code() != EWOULDBLOCK && e.error_code() != EAGAIN && e.error_code() != EINTR) {
-			g_log<ERROR>(e.what(), "(bitcoin_handler)", watcher.fd);
+			g_log<ERROR>(e.what(), "(bitcoin_handler)", e.error_code());
 			
 			/* trigger destruction of self via some kind of queue and probably recreate channel! */
 		}
@@ -214,6 +224,11 @@ void handler::suicide() {
 	close(io.fd);
 	io.fd = -1;
 	g_active_handlers.erase(id);
+	/* delete everyone but me */
+	for(auto it = g_inactive_handlers.begin(); it != g_inactive_handlers.end(); ++it) {
+		delete *it;
+	}
+	g_inactive_handlers.clear();
 	g_inactive_handlers.insert(this);
 }
 
@@ -318,7 +333,7 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 
 				append_for_write(move(vmsg));
 				append_for_write(get_message("verack"));
-				state = (state & SEND_MASK) | SEND_VERSION_REPLY | RECV_HEADER;
+				state = SEND_VERSION_REPLY | RECV_HEADER;
 				break;
 			}
 
@@ -349,6 +364,8 @@ void handler::do_write(ev::io &watcher, int /*revents*/) {
 			state = RECV_VERSION_INIT_HDR;
 			assert(read_queue.to_read() == 0);
 			read_queue.to_read(sizeof(struct packed_message)); 
+			break;
+		case SEND_VERSION_REPLY:
 			break;
 		default:
 			/* we actually do no special handling here so we can
