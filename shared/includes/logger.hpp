@@ -40,6 +40,10 @@ std::ostream & operator<<(std::ostream &o, const struct bitcoin::packed_message 
 
 std::ostream & operator<<(std::ostream &o, const struct sockaddr &addr);
 
+inline std::ostream & operator<<(std::ostream &o, const struct sockaddr_in &addr) {
+	return o << *(struct sockaddr*)&addr;
+}
+
 std::string type_to_str(enum log_type type);
 
 

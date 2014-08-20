@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 
 use strict;
 use warnings;
@@ -227,6 +227,8 @@ CREATE TABLE IF NOT EXISTS bitcoin_messages (
    is_sender INTEGER NOT NULL,
    command TEXT NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS bm_command on bitcoin_messages(command);
 
 CREATE TABLE IF NOT EXISTS bitcoin_message_payloads (
   bitcoin_msg_id INTEGER NOT NULL UNIQUE REFERENCES bitcoin_messages,

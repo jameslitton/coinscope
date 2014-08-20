@@ -8,7 +8,6 @@
 #include <iostream>
 
 #include "crypto.hpp"
-#include "iobuf.hpp"
 #include "logger.hpp"
 #include "config.hpp"
 
