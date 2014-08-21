@@ -16,20 +16,25 @@ using namespace std;
 
 
 template <typename T> 
-alloc_buffer<T>::alloc_buffer() : alloc_buffer(0) {
+alloc_buffer<T>::alloc_buffer() : allocated_(0), buffer_(nullptr), refcount_(nullptr) {
 }
 
 template <typename T> 
 alloc_buffer<T>::alloc_buffer(size_type initial_elements) 
-	: allocated_(initial_elements ? initial_elements * sizeof(POD_T) : 16 * sizeof(POD_T)),
+	: allocated_(initial_elements * sizeof(POD_T)),
 	  buffer_(nullptr),
-	  refcount_(new size_type(1))
+	  refcount_(nullptr)
 {
-	buffer_ = (POD_T*)malloc(allocated_);
-	if (buffer_ == nullptr) {
-		throw runtime_error(string(" failure: ") + strerror(errno));
+	if (initial_elements != 0) {
+		refcount_ = new size_type(1);
+		buffer_ = (POD_T*)malloc(allocated_);
+		if (buffer_ == nullptr || refcount_ == nullptr) {
+			delete refcount_;
+			throw runtime_error(string(" failure: ") + strerror(errno));
+		}
+		memset(buffer_, 0, allocated_);
 	}
-	memset(buffer_, 0, allocated_);
+
 }
 
 template <typename T> 
@@ -38,8 +43,9 @@ alloc_buffer<T>::alloc_buffer(const alloc_buffer &copy)
 	  buffer_(copy.buffer_),
 	  refcount_(copy.refcount_)
 {
-	++*refcount_;
-	
+	if (refcount_ != nullptr) {
+		++*refcount_;		
+	}
 }
 
 template <typename T> 
@@ -62,15 +68,6 @@ alloc_buffer<T> & alloc_buffer<T>::operator=(alloc_buffer other) {
 	return *this;
 }
 
-/*
-  alloc_buffer & operator=(alloc_buffer && other) {
-  swap(allocated_, other.allocated_);
-  swap(refcount_, other.refcount_);
-  swap(buffer_, other.buffer_);
-  return *this;
-  }
-*/
-
 template <typename T> 
 alloc_buffer<T>::~alloc_buffer() {
 	if (refcount_) { /* may have been moved */
@@ -92,6 +89,10 @@ void alloc_buffer<T>::realloc(size_type new_elt_cnt) {
 
 	if (size == allocated_) {
 		return;
+	}
+
+	if (!refcount_) {
+		refcount_ = new size_type(1);
 	}
 
 	if (*refcount_ == 1) { /* yay, fast realloc */
@@ -129,6 +130,9 @@ void alloc_buffer<T>::realloc(size_type new_elt_cnt) {
 /* This acts as a write. If refcount > 1, copy made first */
 template <typename T> 
 typename alloc_buffer<T>::pointer alloc_buffer<T>::ptr() {
+	if (!*this) {
+		throw std::runtime_error("Invalid buffer");			
+	} 
 	if (*refcount_ > 1) {
 		POD_T *newbuf = (POD_T*)malloc(allocated_);
 		if (newbuf == nullptr) {

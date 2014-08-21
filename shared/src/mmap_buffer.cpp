@@ -27,17 +27,22 @@ static size_t round_to_page(size_t size) {
 
 
 template <typename T> 
-mmap_buffer<T>::mmap_buffer() : mmap_buffer(0) {}
+mmap_buffer<T>::mmap_buffer() : allocated_(0), buffer_(nullptr), refcount_(nullptr) {}
 
 template <typename T> 
 mmap_buffer<T>::mmap_buffer(size_type initial_elements) 
-	: allocated_(round_to_page(initial_elements * sizeof(POD_T))),
+	: allocated_(0),
 	  buffer_(nullptr),
-	  refcount_(new size_type(1))
+	  refcount_(nullptr)
 {
-	buffer_ = (POD_T*)mmap(NULL, allocated_, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-	if (buffer_ == MAP_FAILED) {
-		throw std::runtime_error(std::string("mmap failure: ") + strerror(errno));
+	if (initial_elements > 0) {
+		allocated_ = (round_to_page(initial_elements * sizeof(POD_T)));
+		refcount_ = new size_type(1);
+		buffer_ = (POD_T*)mmap(NULL, allocated_, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+		if (buffer_ == MAP_FAILED) {
+			delete refcount_;
+			throw std::runtime_error(std::string("mmap failure: ") + strerror(errno));
+		}
 	}
 }
 
@@ -47,7 +52,9 @@ mmap_buffer<T>::mmap_buffer(const mmap_buffer &copy)
 	  buffer_(copy.buffer_),
 	  refcount_(copy.refcount_)
 {
-	++*refcount_;
+	if (refcount_) {
+		++*refcount_;
+	}
 	
 }
 
@@ -105,18 +112,25 @@ void mmap_buffer<T>::realloc(size_type new_elt_cnt) {
 		return;
 	}
 
-	if (*refcount_ == 1) { /* yay, fast realloc */
-
-		POD_T *newbuf = (POD_T*) mremap(buffer_, allocated_, size, MREMAP_MAYMOVE);
-		if (newbuf == MAP_FAILED) {
-			throw std::runtime_error(std::string("mremap failure: ") + strerror(errno));
+	if (!refcount_ || *refcount_ == 1) {
+		if (!refcount_) {
+			buffer_ = (POD_T*)mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+			if (buffer_ == MAP_FAILED) {
+				throw runtime_error(string("mmap failure in realloc: ") + strerror(errno));
+			}
+			refcount_ = new size_type(1);
+		} else {
+			POD_T *newbuf = (POD_T*) mremap(buffer_, allocated_, size, MREMAP_MAYMOVE);
+			if (newbuf == MAP_FAILED) {
+				throw std::runtime_error(std::string("mremap failure: ") + strerror(errno));
+			}
+			/* NOTE: keep iterators as offset from buffer */
+			buffer_ = newbuf;
 		}
-		/* NOTE: keep iterators as offset from buffer */
-		buffer_ = newbuf;
 		allocated_ = size;
+	} else {
 
-
-	} else { /* time to COW */
+		/* time to COW */
 		mmap_buffer<T> tmp(new_elt_cnt);
 		size_type n = std::min(tmp.allocated(), allocated_);
 		memcpy(tmp.ptr(), buffer_, n);
@@ -130,6 +144,9 @@ void mmap_buffer<T>::realloc(size_type new_elt_cnt) {
 /* This acts as a write. If refcount > 1, copy made first */
 template <typename T> 
 typename mmap_buffer<T>::pointer mmap_buffer<T>::ptr() {
+	if (!*this) {
+		throw std::runtime_error("Invalid buffer");			
+	} 
 	if (*refcount_ > 1) {
 
 		POD_T *newbuf = nullptr;

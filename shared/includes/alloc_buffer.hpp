@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdint>
 
+#include <stdexcept>
 #include <iterator>
 #include <type_traits>
 
@@ -48,7 +49,11 @@ public:
 		typedef typename alloc_buffer<T>::reference reference;
 		typedef typename std::random_access_iterator_tag iterator_category;
 
-		iterator(alloc_buffer *owner, size_type pos) : owner_(owner), pos_(pos) {}
+		iterator(alloc_buffer *owner, size_type pos) : owner_(owner), pos_(pos) {
+			if (!*owner) {
+				throw std::invalid_argument("bad owner");
+			}
+		}
 
 		iterator & operator++() { /* prefix inc */
 			++pos_;
@@ -122,7 +127,13 @@ public:
 	alloc_buffer(const alloc_buffer &copy);
 	alloc_buffer(alloc_buffer &&moved);
 	alloc_buffer & operator=(alloc_buffer other);
+
+	explicit operator bool() const {
+		return buffer_;
+	}
+
 	~alloc_buffer();
+
 	iterator begin() {
 		return iterator(this, 0);
 	}
@@ -132,18 +143,30 @@ public:
 	}
 
 	const_iterator cbegin() const {
-		return (const_pointer)buffer_;
+		if (*this) {
+			return (const_pointer)buffer_;
+		} else {
+			throw std::runtime_error("Invalid buffer");
+		}
 	}
 
 	const_iterator cend() const {
-		return (const_pointer)(buffer_ + (allocated_ / sizeof(POD_T)));
+		if (*this) {
+			return (const_pointer)(buffer_ + (allocated_ / sizeof(POD_T)));
+		} else {
+			throw std::runtime_error("Invalid buffer");
+		}
 	}
 
 	void realloc(size_type new_elt_cnt);
 
 	/* this doesn't act as a write, no copy made */
 	const_pointer const_ptr() const {
-		return (const_pointer)(buffer_);
+		if (*this) {
+			return (const_pointer)(buffer_);
+		} else {
+			throw std::runtime_error("Invalid buffer");
+		}
 	}
 
 	/* This acts as a write. If refcount > 1, copy made first */
@@ -152,6 +175,8 @@ public:
 	size_type allocated() const {
 		return allocated_;
 	}
+
+	long use_count() const { return refcount_ ? *refcount_ : 0; }
 
 };
 

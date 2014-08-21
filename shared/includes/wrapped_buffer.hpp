@@ -40,7 +40,11 @@ private:
 		typedef typename wrapped_buffer<T>::reference reference;
 		typedef typename std::random_access_iterator_tag iterator_category;
 
-		iterator(wrapped_buffer *owner, size_type pos) : owner_(owner), pos_(pos) {}
+		iterator(wrapped_buffer *owner, size_type pos) : owner_(owner), pos_(pos) {
+			if (!*owner) {
+				throw std::invalid_argument("bad owner");
+			}
+		}
 
 		iterator & operator++() { /* prefix inc */
 			++pos_;
@@ -115,6 +119,11 @@ public:
 	wrapped_buffer(const wrapped_buffer &copy);
 	wrapped_buffer(wrapped_buffer &&moved);
 	wrapped_buffer & operator=(wrapped_buffer other);
+
+	explicit operator bool() const {
+		return mbuffer_ || abuffer_;
+	}
+
 	~wrapped_buffer();
 	iterator begin() {
 		return iterator(this, 0);
@@ -125,24 +134,50 @@ public:
 	}
 
 	const_iterator cbegin() const {
-		return mbuffer_ ? mbuffer_->cbegin() : abuffer_->cbegin();
+		if (*this) {
+			return mbuffer_ ? mbuffer_->cbegin() : abuffer_->cbegin();
+		} else {
+			throw std::runtime_error("Invalid buffer");
+		}
 	}
 
 	const_iterator cend() const {
-		return mbuffer_ ? mbuffer_->cend() : abuffer_->cend();
+		if (*this) {
+			return mbuffer_ ? mbuffer_->cend() : abuffer_->cend();
+		} else {
+			throw std::runtime_error("Invalid buffer");
+		}
+
 	}
 
 	void realloc(size_type new_elt_cnt);
 
 	/* this doesn't act as a write, no copy made */
 	const_pointer const_ptr() const {
-		return mbuffer_ ? mbuffer_->const_ptr() : abuffer_->const_ptr();
+		if (*this) {
+			return mbuffer_ ? mbuffer_->const_ptr() : abuffer_->const_ptr();
+		} else {
+			throw std::runtime_error("Invalid buffer");
+		}
+
 	}
 
 	pointer ptr();
 
 	size_type allocated() const {
-		return mbuffer_ ? mbuffer_->allocated() : abuffer_->allocated();
+		if (*this) {
+			return mbuffer_ ? mbuffer_->allocated() : abuffer_->allocated();
+		} else {
+			return 0;
+		}
+	}
+
+	long use_count() const { 
+		if (*this) {
+			return mbuffer_ ? mbuffer_->use_count() : abuffer_->use_count();			
+		} else {
+			return 0; 
+		}
 	}
 
 };

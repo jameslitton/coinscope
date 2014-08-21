@@ -15,22 +15,23 @@ using namespace std;
 #define MMAP_THRESHOLD 50000
 
 template <typename T> 
-wrapped_buffer<T>::wrapped_buffer() : wrapped_buffer(0) {}
+wrapped_buffer<T>::wrapped_buffer() : mbuffer_(nullptr), abuffer_(nullptr) {}
 
 template <typename T> 
 wrapped_buffer<T>::wrapped_buffer(size_type initial_elements) 
 	: mbuffer_(nullptr),
 	  abuffer_(nullptr)
 {
-	initial_elements = max(initial_elements, (size_type) 1);
-	size_t size = initial_elements * sizeof(POD_T);
-	if (size > MMAP_THRESHOLD) {
-		mbuffer_ = new mmap_buffer<T>(initial_elements);
-	} else {
-		abuffer_ = new alloc_buffer<T>(initial_elements);
-	}
-	if (mbuffer_ == nullptr && abuffer_ == nullptr) {
-		throw runtime_error(string("wrapped_buffer failure: ") + strerror(errno));
+	if (initial_elements != 0) {
+		size_t size = initial_elements * sizeof(POD_T);
+		if (size > MMAP_THRESHOLD) {
+			mbuffer_ = new mmap_buffer<T>(initial_elements);
+		} else {
+			abuffer_ = new alloc_buffer<T>(initial_elements);
+		}
+		if (mbuffer_ == nullptr && abuffer_ == nullptr) {
+			throw runtime_error(string("wrapped_buffer failure: ") + strerror(errno));
+		}
 	}
 }
 
@@ -42,10 +43,7 @@ wrapped_buffer<T>::wrapped_buffer(const wrapped_buffer &copy)
 		mbuffer_ = new mmap_buffer<T>(*copy.mbuffer_);
 	} else if (copy.abuffer_) {
 		abuffer_ = new alloc_buffer<T>(*copy.abuffer_);
-	} else {
-		assert(false);
-	}
-	
+	} 
 }
 
 template <typename T> 
@@ -87,7 +85,7 @@ void wrapped_buffer<T>::realloc(size_type new_elt_cnt) {
 			delete abuffer_;
 			abuffer_ = nullptr;
 		} else {
-			assert(false);
+			mbuffer_ = new mmap_buffer<T>(new_elt_cnt);
 		}
 
 	} else {
@@ -101,7 +99,7 @@ void wrapped_buffer<T>::realloc(size_type new_elt_cnt) {
 		} else if (abuffer_){
 			abuffer_->realloc(new_elt_cnt);
 		} else {
-			assert(false);
+			abuffer_ = new alloc_buffer<T>(new_elt_cnt);
 		}
 	}
 
@@ -110,11 +108,12 @@ void wrapped_buffer<T>::realloc(size_type new_elt_cnt) {
 
 template <typename T> 
 typename wrapped_buffer<T>::pointer wrapped_buffer<T>::ptr() {
-	return mbuffer_ ? mbuffer_->ptr() : abuffer_->ptr();
+	if (*this) {
+		return mbuffer_ ? mbuffer_->ptr() : abuffer_->ptr();
+	} else {
+		throw runtime_error("bad buffer");
+	}
 }
 
 template class wrapped_buffer<uint8_t>;
 template class wrapped_buffer<uint32_t>;
-
-
-
