@@ -207,7 +207,7 @@ void append_roots(const char *rootfile) {
 void do_getaddrs(int sock, time_t now) {
 	unique_lock<mutex> lock(g_getaddr_mux);
 	/* do all pending_getaddrs */
-	while(pending_getaddr.size() && (now - pending_getaddr.top().insertion_time)) {
+	while(pending_getaddr.size() && (now - pending_getaddr.top().insertion_time) > 0) {
 		auto topaddr(pending_getaddr.top());
 		pending_getaddr.pop();
 		lock.unlock();
