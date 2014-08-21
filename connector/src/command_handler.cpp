@@ -56,6 +56,23 @@ handler::~handler() {
 	}
 }
 
+void foreach_handlers(const struct command_msg *msg, std::function<void(pair<const uint32_t, bc::handler*>&)> f) {
+	uint32_t target_cnt = ntoh(msg->target_cnt);
+	if (target_cnt == 0) {
+		for_each(bc::g_active_handlers.begin(), bc::g_active_handlers.end(), f);
+	} else {
+		for(uint32_t i = 0; i < target_cnt; ++i) {
+			uint32_t target = ntoh(msg->targets[i]);
+			bc::handler_map::iterator hit = bc::g_active_handlers.find(target);
+			if (hit != bc::g_active_handlers.end()) {
+				f(*hit);
+			} else {
+				g_log<DEBUG>("Attempting to send command message", ntoh(msg->message_id), "to non-existant target", target);
+			}
+		}
+	}
+}
+
 void handler::handle_message_recv(const struct command_msg *msg) { 
 	vector<uint8_t> out;
 
@@ -91,26 +108,15 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 			g_log<ERROR>("invalid message id", message_id);
 		} else {
 			wrapped_buffer<uint8_t> packed(it->second.get_buffer());
-			uint32_t target_cnt = ntoh(msg->target_cnt);
-			if (target_cnt == 0) {
-				for_each(bc::g_active_handlers.begin(), bc::g_active_handlers.end(), [&](pair<uint32_t, bc::handler*> p) {
-						p.second->append_for_write(packed);
-					});
-			} else {
-				for(uint32_t i = 0; i < target_cnt; ++i) {
-					uint32_t target = ntoh(msg->targets[i]);
-					bc::handler_map::iterator hit = bc::g_active_handlers.find(target);
-					if (hit != bc::g_active_handlers.end()) {
-						hit->second->append_for_write(packed);
-					} else {
-						g_log<DEBUG>("Attempting to send command message", message_id, "to non-existant target", target);
-					}
-				}
-			}
+			foreach_handlers(msg, [&](pair<const uint32_t, bc::handler*> p) {
+					p.second->append_for_write(packed);
+				});
 		}
 	} else if (msg->command == COMMAND_DISCONNECT) {
-		//uint32_t message_id = ntoh(msg->message_id);
-		
+		g_log<DEBUG>("disconnect command received");
+		foreach_handlers(msg, [](pair<const uint32_t, bc::handler*> p) {
+				p.second->disconnect();
+			});
 	} else {
 		g_log<CTRL>("UNKNOWN COMMAND_MSG COMMAND: ", msg->command);
 	}

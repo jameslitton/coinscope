@@ -67,7 +67,7 @@ public:
 	void append_for_write(std::unique_ptr<struct packed_message> m);
 	/* this is an optimized call for reducing copies. buf better be a packed_message internally */
 	void append_for_write(wrapped_buffer<uint8_t> buf); 
-
+	void disconnect();
 private:
 	void suicide(); /* get yourself ready for suspension (e.g., stop loop activity) if safe, just delete self */
 	/* could implement move operators, but others are odd */

@@ -219,6 +219,11 @@ handler::~handler() {
 	}
 }
 
+void handler::disconnect() {
+	g_log<BITCOIN>(CONNECTOR_DISCONNECT, id, remote_addr, local_addr, nullptr, 0);
+	suicide();
+}
+
 void handler::suicide() {
 	io.stop();
 	close(io.fd);

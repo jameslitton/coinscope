@@ -29,6 +29,7 @@ const uint32_t WRITE_DISCONNECT(0x8); // Attempt to write returns error, disconn
 const uint32_t UNEXPECTED_ERROR(0x10); // We got some kind of other error, indicating potentially iffy state, so disconnected
 const uint32_t CONNECT_FAILURE(0x20); // We initiated a connection, but if failed.
 const uint32_t PEER_RESET(0x40); // connection reset by peer
+const uint32_t CONNECTOR_DISCONNECT(0x80); // we initiated a disconnect
 
 
 
