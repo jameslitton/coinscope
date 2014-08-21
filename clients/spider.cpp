@@ -46,7 +46,7 @@ uint32_t g_msg_id; /* left in network byte order */
 
 void watch_cxn(const string &);
 void fetch_addrs(const string &);
-void append_getaddr(uint32_t handle, const struct sockaddr_in &remote);
+void append_getaddr(uint32_t handle /* host byte order */, const struct sockaddr_in &remote);
 
 struct pm_type { /* used to use a tuple. having the names is nice
                     though, but that's the reason for the names */
@@ -207,7 +207,7 @@ void append_roots(const char *rootfile) {
 void do_getaddrs(int sock, time_t now) {
 	unique_lock<mutex> lock(g_getaddr_mux);
 	/* do all pending_getaddrs */
-	while(pending_getaddr.size() && (now - pending_getaddr.top().insertion_time) > 10) {
+	while(pending_getaddr.size() && (now - pending_getaddr.top().insertion_time)) {
 		auto topaddr(pending_getaddr.top());
 		pending_getaddr.pop();
 		lock.unlock();
@@ -279,12 +279,12 @@ int main(int argc, char *argv[]) {
 	int sock = unix_sock_client((const char*)cfg->lookup("connector.control_path"), false);
 
 	register_getaddr(sock);
-	append_roots("/home/litton/nodelist-mmap.bin");
+	append_roots(NULL);
 	time_t now(time(NULL));
 	get_all_cxn(sock, [&](struct connection_info *info, size_t ) {
 			unique_lock<mutex> lck(g_map_mux);
 			addr_map[info->remote_addr].connect_time = now;
-			append_getaddr(info->handle_id, info->remote_addr);
+			append_getaddr(ntoh(info->handle_id), info->remote_addr);
 		});
 
 
