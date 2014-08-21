@@ -13,6 +13,7 @@
 #include <mutex>
 #include <thread>
 #include <queue>
+#include <atomic>
 
 /* standard unix libraries */
 #include <sys/types.h>
@@ -40,13 +41,11 @@
 using namespace std;
 using namespace ctrl;
 
-size_t g_successful_connects = 0;
-
 uint32_t g_msg_id; /* left in network byte order */
 
 
-void watch_cxn(const libconfig::Config *cfg);
-void fetch_addrs(const libconfig::Config *cfg);
+void watch_cxn(const string &);
+void fetch_addrs(const string &);
 void append_getaddr(uint32_t handle, const struct sockaddr_in &remote);
 
 struct pm_type { /* used to use a tuple. having the names is nice
@@ -67,7 +66,8 @@ struct pm_cmp {
 	}
 };
 
-size_t g_outstanding_connects(0);
+atomic_ulong g_outstanding_connects(0);
+atomic_ulong g_successful_connects(0);
 
 mutex g_getaddr_mux;
 priority_queue<pm_type, vector<pm_type>, pm_cmp> pending_getaddr;
@@ -132,25 +132,27 @@ void append_connect(const struct sockaddr_in &remote) {
 	{
 		unique_lock<mutex> lck(g_map_mux);
 		auto it = addr_map.find(remote);
-		if (it != addr_map.end() && it->second.connect_time != 0) { /* already connected */
+		if (it != addr_map.end()) { /* already connected */
 			return;
 		}
 	}
 
-	wrapped_buffer<uint8_t> buf(sizeof(struct connect_message));
-	struct connect_message *message = (struct connect_message*) buf.ptr();
-
-	message->version = 0; 
-	message->length = hton((uint32_t)sizeof(connect_payload));
-	message->message_type = CONNECT;
-	message->payload.local_addr.sin_family = AF_INET;
-	message->payload.local_addr.sin_addr.s_addr = 0; /* current version of connector ignores this */
-	message->payload.local_addr.sin_port = 0;
-
-	memcpy(&message->payload.remote_addr, &remote, sizeof(remote));
 	{
 		unique_lock<mutex> lck(g_connect_mux);
+		wrapped_buffer<uint8_t> buf(sizeof(struct connect_message));
+		struct connect_message *message = (struct connect_message*) buf.ptr();
+
+		message->version = 0; 
+		message->length = hton((uint32_t)sizeof(connect_payload));
+		message->message_type = CONNECT;
+		message->payload.local_addr.sin_family = AF_INET;
+		message->payload.local_addr.sin_addr.s_addr = 0; /* current version of connector ignores this */
+		message->payload.local_addr.sin_port = 0;
+
+		memcpy(&message->payload.remote_addr, &remote, sizeof(remote));
+
 		pending_connects.push_back(pm_type(buf, sizeof(*message), message->payload.remote_addr));
+		message = (struct connect_message*)buf.const_ptr();
 	}
 }
 
@@ -190,7 +192,6 @@ void append_roots(const char *rootfile) {
 	}
 
 	for(const struct sockaddr_in *cur = addrs; cur->sin_family != 0; ++cur) {
-		cout << "appending " << *((struct sockaddr*)cur) << endl;
 		append_connect(*cur);
 	}
 
@@ -220,7 +221,7 @@ void do_getaddrs(int sock, time_t now) {
 	}
 }
 
-const size_t MAX_ONGOING_CONNECTS(1000);
+const size_t MAX_ONGOING_CONNECTS(10000);
 
 void do_connects(int sock) {
 	unique_lock<mutex> lock(g_connect_mux);
@@ -228,10 +229,10 @@ void do_connects(int sock) {
 		/* do all pending connects*/
 		auto pending(pending_connects.front());
 		pending_connects.pop_front();
+		const struct message *msg = (const struct message*) pending.buf.const_ptr();
 
 		lock.unlock();
 
-		const struct message *msg = (const struct message*) pending.buf.const_ptr();
 		assert(msg->message_type == CONNECT);
 		bool do_connect = false;
 		const struct connect_message *con_msg  = (const struct connect_message*) msg;
@@ -278,9 +279,7 @@ int main(int argc, char *argv[]) {
 	int sock = unix_sock_client((const char*)cfg->lookup("connector.control_path"), false);
 
 	register_getaddr(sock);
-	append_roots(NULL);
-
-
+	append_roots("/home/litton/nodelist-mmap.bin");
 	time_t now(time(NULL));
 	get_all_cxn(sock, [&](struct connection_info *info, size_t ) {
 			unique_lock<mutex> lck(g_map_mux);
@@ -288,10 +287,15 @@ int main(int argc, char *argv[]) {
 			append_getaddr(info->handle_id, info->remote_addr);
 		});
 
-	/* okay, start up worker thread */
 
-	thread cxn_watcher(watch_cxn, cfg);
-	thread fetcher(fetch_addrs, cfg);
+	string root((const char*)cfg->lookup("logger.root"));
+	mkdir(root.c_str(), 0777);
+	string client_dir = root + "clients/";
+
+	/* okay, start up worker threads */
+	thread cxn_watcher(watch_cxn, client_dir);
+	thread fetcher(fetch_addrs, client_dir);
+
 	cxn_watcher.detach();
 	fetcher.detach();
 
@@ -343,7 +347,7 @@ void handle_message(read_buffer &input_buf) {
 		addrs = (const struct bitcoin::full_packed_net_addr*) (bc_msg->payload + size);
 
 		for(size_t i = 0; i < count; ++i) {
-			if (!is_private(addrs[i].rest.addr.ipv4.as.number) && ntoh(addrs[i].rest.port) == 8333) {
+			if (!is_private(addrs[i].rest.addr.ipv4.as.number)) {// && ntoh(addrs[i].rest.port) == 8333) {
 				struct sockaddr_in netaddr = { AF_INET, 
 				                               addrs[i].rest.port, 
 				                               addrs[i].rest.addr.ipv4.as.in_addr, 
@@ -357,20 +361,22 @@ void handle_message(read_buffer &input_buf) {
 
 void append_getaddr(uint32_t handle_id, const struct sockaddr_in &remote) {
 	size_t total_len = sizeof(struct message) + sizeof(command_msg) + 4; /* room for one target */
-	wrapped_buffer<uint8_t> buf(total_len);
-	struct message *msg = (struct message *) buf.ptr();
-	struct command_msg *cmsg = (struct command_msg*) ((uint8_t*) msg + sizeof(struct message));
-	msg->version = 0;
-	msg->length = hton((uint32_t)sizeof(*cmsg) + 4);
-	msg->message_type = COMMAND;
-
-	cmsg->command = COMMAND_SEND_MSG;
-	cmsg->message_id = g_msg_id; /* already in NBO */
-	cmsg->target_cnt = hton(1);
-	cmsg->targets[0] = hton(handle_id);
 
 	{
 		unique_lock<mutex> lock(g_getaddr_mux);
+		wrapped_buffer<uint8_t> buf(total_len);
+		struct message *msg = (struct message *) buf.ptr();
+		struct command_msg *cmsg = (struct command_msg*) ((uint8_t*) msg + sizeof(struct message));
+		msg->version = 0;
+		msg->length = hton((uint32_t)sizeof(*cmsg) + 4);
+		msg->message_type = COMMAND;
+
+		cmsg->command = COMMAND_SEND_MSG;
+		cmsg->message_id = g_msg_id; /* already in NBO */
+		cmsg->target_cnt = hton(1);
+		cmsg->targets[0] = hton(handle_id);
+
+
 		time_t now(time(NULL));
 		for(size_t i = 0; i < 8; ++i) {
 			pending_getaddr.push(pm_type(buf, total_len, remote, now + i * 10));
@@ -379,17 +385,19 @@ void append_getaddr(uint32_t handle_id, const struct sockaddr_in &remote) {
 }
 
 
-void watch_cxn(const libconfig::Config *cfg) {
-	string root((const char*)cfg->lookup("logger.root"));
-	mkdir(root.c_str(), 0777);
-	string client_dir(root + "clients/");
+void watch_cxn(const string &client_dir) {
 	int bitcoin_client = unix_sock_client(client_dir + "bitcoin", false);
 	bcwatch watcher(bitcoin_client, 
 	                [](struct bc_channel_msg *bc_msg) {
 		                append_getaddr(bc_msg->handle_id, bc_msg->remote);
 		                cout << '(' << g_successful_connects << ") successful connect to " << *((struct sockaddr*) &bc_msg->remote) << endl;
 		                g_successful_connects += 1;
-		                g_outstanding_connects = (g_outstanding_connects == 0) ? (size_t) 0 : g_outstanding_connects - 1;
+
+		                unsigned long expected, desired;
+		                do {
+			                expected = g_outstanding_connects.load();
+			                desired = (expected == 0) ? 0 : expected - 1;
+		                } while (!g_outstanding_connects.compare_exchange_weak(expected, desired));
 
 		                {
 			                unique_lock<mutex> lock(g_map_mux);
@@ -403,7 +411,13 @@ void watch_cxn(const libconfig::Config *cfg) {
 	                },
 	                [](struct bc_channel_msg *msg) {
 		                g_outstanding_connects = min((size_t)0, g_outstanding_connects - 1);
-		                g_outstanding_connects = (g_outstanding_connects == 0) ? (size_t) 0 : g_outstanding_connects - 1;
+
+		                unsigned long expected, desired;
+		                do {
+			                expected = g_outstanding_connects.load();
+			                desired = (expected == 0) ? 0 : expected - 1;
+		                } while (!g_outstanding_connects.compare_exchange_weak(expected, desired));
+
 		                {
 			                unique_lock<mutex> lock(g_map_mux);
 			                auto it = addr_map.find(msg->remote);
@@ -413,14 +427,15 @@ void watch_cxn(const libconfig::Config *cfg) {
 				                cerr << "Got a disconnect from someone you didn't know exists...\n";
 			                }
 		                }
-
-		                cout << "Unsuccessful connect. " << endl;
-		                cout << "\ttime: " << msg->time << endl;
-		                cout << "\tupdate_type: " << msg->update_type << endl;
-		                cout << "\tremote: " << *((struct sockaddr*) &msg->remote) << endl;
-		                cout << "\ttext_length: " << msg->text_length << endl;
-		                if (msg->text_length) {
-			                cout << "\ttext: " << msg->text << endl;
+		                if (0) {
+			                cout << "Unsuccessful connect. " << endl;
+			                cout << "\ttime: " << msg->time << endl;
+			                cout << "\tupdate_type: " << msg->update_type << endl;
+			                cout << "\tremote: " << *((struct sockaddr*) &msg->remote) << endl;
+			                cout << "\ttext_length: " << msg->text_length << endl;
+			                if (msg->text_length) {
+				                cout << "\ttext: " << msg->text << endl;
+			                }
 		                }
 	                });
 	watcher.loop_forever();
@@ -428,12 +443,7 @@ void watch_cxn(const libconfig::Config *cfg) {
 	                
 
 
-void fetch_addrs(const libconfig::Config *cfg) {
-
-	string root((const char*)cfg->lookup("logger.root"));
-
-	mkdir(root.c_str(), 0777);
-	string client_dir(root + "clients/");
+void fetch_addrs(const string &client_dir) {
 
 	int client = unix_sock_client(client_dir + "bitcoin_msg", false);
 

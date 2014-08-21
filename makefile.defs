@@ -1,8 +1,10 @@
-CC=gcc
-CXX=g++
+export LD_RUN_PATH=/tmp/usr/lib:/tmp/usr/local/lib:/tmp/usr/local/lib64:/tmp/usr/cbitcoin/cbitcoin/bin:/tmp/usr/boost_1_48_0/stage/lib
+export LD_LIBRARY_PATH=/tmp/usr/lib:/tmp/usr/local/lib:/tmp/usr/local/lib64:/tmp/usr/cbitcoin/cbitcoin/bin:/tmp/usr/boost_1_48_0/stage/lib
+CC=/tmp/usr/local/bin/gcc
+CXX=/tmp/usr/local/bin/g++
 #CXX=clang++
-CFLAGS=-Wall -Wextra -Wcast-align -Iincludes -I../shared/includes -ggdb -O2
-CXXFLAGS=-Wall -Wextra -Wcast-align -std=c++11 -Weffc++ -Iincludes -I../shared/includes -ggdb -O2
+CFLAGS=-Wall -Wextra -Wcast-align -Iincludes -I../shared/includes -ggdb -O2 -isystem /tmp/usr/include -L/tmp/usr/lib 
+CXXFLAGS=-Wall -Wextra -Wcast-align -std=c++11 -Weffc++ -Iincludes -I../shared/includes -ggdb -O2 -gdwarf-2 -isystem /tmp/usr/include -L/tmp/usr/lib 
 VPATH=../shared/src:src:includes
 
 
