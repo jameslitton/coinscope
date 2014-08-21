@@ -246,7 +246,7 @@ CREATE VIEW IF NOT EXISTS bitcoin_cxn_v AS
 SELECT m.timestamp, btc.handle_id, cxn_t.type, btc.remote_id, btc.local_id
 FROM messages m, bitcoin_cxn_types cxn_t, bitcoin_cxn_messages btc
 LEFT JOIN cxn_text_map m ON btc.id = m.bitcoin_cxn_msg_id
-WHERE m.id = btc.message_id and m.type_id = 16 and cxn_t.id=cxn_type_id
+WHERE m.id = btc.message_id and m.type_id = 16 and cxn_t.id = cxn_type_id
 ;
 
 CREATE VIEW IF NOT EXISTS bitcoin_txt_v AS
