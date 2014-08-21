@@ -241,7 +241,18 @@ void handler::append_for_write(const struct packed_message *m) {
 		io.set(events);
 	}
 	state |= SEND_MESSAGE;
+}
 
+void handler::append_for_write(wrapped_buffer<uint8_t> buf) {
+	const  struct packed_message *m = (const struct packed_message*) buf.const_ptr();
+	g_log<BITCOIN_MSG>(id, true, m);
+	write_queue.append(buf, m->length + sizeof(*m));
+
+	if (!(state & SEND_MASK)) { /* okay, need to add to the io state */
+		int events = ev::WRITE | (state & RECV_MASK ? ev::READ : ev::NONE);
+		io.set(events);
+	}
+	state |= SEND_MESSAGE;
 }
 
 void handler::append_for_write(unique_ptr<struct packed_message> m) {
