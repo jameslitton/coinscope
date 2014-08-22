@@ -12,6 +12,8 @@
 
 #include "netwrap.hpp"
 #include "logger.hpp"
+#include "config.hpp"
+#include "crypto.hpp"
 
 using namespace std;
 
@@ -21,6 +23,9 @@ handler_map g_active_handlers;
 handler_set g_inactive_handlers;
 
 uint32_t handler::id_pool = 0;
+
+static int g_ping_iv = -1;
+
 
 static set<connect_handler *> g_inactive_connection_handlers; /* to be deleted */
 
@@ -150,6 +155,7 @@ void accept_handler::io_cb(ev::io &watcher, int /*revents*/) {
 	g_inactive_handlers.clear();
 }
 
+
 handler::handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_addr, const struct sockaddr_in &a_local_addr) 
 	: read_queue(0),
 	  write_queue(),
@@ -157,7 +163,7 @@ handler::handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_ad
 	  local_addr(a_local_addr),
 	  timestamp(ev::now(ev_default_loop())),
 	  state(a_state), 
-	  io(), timer(),
+	  io(), timer(), last_activity(timestamp),
 	  id(id_pool++) 
 {
 
@@ -179,6 +185,35 @@ handler::handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_ad
 	}
 	assert(io.fd > 0);
 	io.start();
+
+	if (g_ping_iv < 0) {
+		const libconfig::Config *cfg(get_config());
+		int pf = cfg->lookup("connector.bitcoin.ping_frequency");
+		g_ping_iv = max(0, pf);
+	}
+
+	if (g_ping_iv > 0) {
+		timer.set<handler, &handler::pinger_cb>(this);
+		timer.set(g_ping_iv);
+		timer.start();
+	}
+	
+}
+
+void handler::pinger_cb(ev::timer &/*w*/, int /*revents*/) {
+	ev::tstamp after = last_activity - ev::now(ev_default_loop()) + g_ping_iv;
+	if (after < 0.0) {
+		uint64_t nonce = nonce_gen64();
+		auto m(get_message("ping", (uint8_t*)&nonce, 8));
+		append_for_write(move(m));
+		timer.stop();
+		timer.set(g_ping_iv);
+		timer.start();
+	} else {
+		timer.stop();
+		timer.set(after);
+		timer.start();
+	}
 }
 
 
@@ -415,6 +450,8 @@ void handler::io_cb(ev::io &watcher, int revents) {
 		events |= ev::READ;
 	}
 	io.set(events);
+
+	last_activity = ev::now(ev_default_loop());
 }
 
 };
