@@ -249,6 +249,7 @@ handler::~handler() {
 		/* This shouldn't normally ever be destructed unless it is in the inactive_handler set, so this path shouldn't happen, but if so, don't leak */
 		io.stop();
 		close(io.fd);
+		timer.stop();
 		io.fd = -1;
 		g_active_handlers.erase(id);
 	}
@@ -260,6 +261,7 @@ void handler::disconnect() {
 }
 
 void handler::suicide() {
+	timer.stop();
 	io.stop();
 	close(io.fd);
 	io.fd = -1;
