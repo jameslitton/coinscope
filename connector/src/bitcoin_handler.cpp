@@ -155,9 +155,9 @@ handler::handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_ad
 	  write_queue(),
 	  remote_addr(a_remote_addr),
 	  local_addr(a_local_addr),
-	  timestamp(time(NULL)),
+	  timestamp(ev::now(ev_default_loop())),
 	  state(a_state), 
-	  io(),
+	  io(), timer(),
 	  id(id_pool++) 
 {
 

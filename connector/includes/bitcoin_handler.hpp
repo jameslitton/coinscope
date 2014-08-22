@@ -50,7 +50,7 @@ private:
 	uint32_t state;
 
 	ev::io io;
-
+	ev::timer timer;
 	uint32_t id;
 	static uint32_t id_pool;
 

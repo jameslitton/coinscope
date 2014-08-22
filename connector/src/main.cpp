@@ -140,9 +140,7 @@ int main(int argc, const char *argv[]) {
 	g_log<DEBUG>("Entering event loop");
 	
 	while(true) {
-		/* add timer to clean destruction queues */
 		/* add timer to attempt recreation of lost control channel */
-		/* add timer to recreate lost logging channel */
 		loop.run();
 	}
 	

@@ -55,7 +55,7 @@ log_buffer *g_log_buffer;
 
 template <> void g_log<BITCOIN>(uint32_t update_type, uint32_t handle_id, const struct sockaddr_in &remote, 
                                 const struct sockaddr_in &local, const char * text, uint32_t text_len) {
-	uint64_t net_time = hton((uint64_t)time(NULL));
+	uint64_t net_time = hton((uint64_t)ev::now(ev_default_loop()));
 	size_t len = 1 + sizeof(net_time) + sizeof(handle_id) + sizeof(update_type) +
 		2*sizeof(remote) + sizeof(text_len) + text_len;
 	wrapped_buffer<uint8_t> wbuf(len);
@@ -106,7 +106,7 @@ template <> void g_log<BITCOIN>(uint32_t update_type, uint32_t handle_id, const 
 
 template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bitcoin::packed_message *m) {
 
-	uint64_t net_time = hton((uint64_t)time(NULL));
+	uint64_t net_time = hton((uint64_t)ev::now(ev_default_loop()));
 	uint32_t net_id = hton(id);
 	size_t len = 1 + sizeof(net_time) + sizeof(net_id) + 1 + sizeof(*m) + m->length;
 	wrapped_buffer<uint8_t> wbuf(len);

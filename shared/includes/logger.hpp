@@ -122,7 +122,7 @@ void g_log_inner(wrapped_buffer<uint8_t> &wbuf, size_t &len, const T &val, Targs
 
 template <int N, typename... Targs>
 void g_log(const std::string &val, Targs... Fargs) {
-	uint64_t net_time = hton((uint64_t)time(NULL));
+	uint64_t net_time = hton((uint64_t)ev::now(ev_default_loop()));
 
 	wrapped_buffer<uint8_t> wbuf(128);
 	uint8_t *ptr = wbuf.ptr();

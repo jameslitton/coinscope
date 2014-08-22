@@ -28,19 +28,15 @@ uint32_t handler::id_pool = 0;
 
 class registered_msg {
 public:
-	time_t registration_time;
 	wrapped_buffer<uint8_t> msg;
 
-	registered_msg(time_t regtime, const struct message *messg) 
-		: registration_time(regtime), 
-		  msg(ntoh(messg->length))
+	registered_msg(const struct message *messg) 
+		: msg(ntoh(messg->length))
 	{
 		memcpy(msg.ptr(), &messg->payload, ntoh(messg->length));
 	}
 	registered_msg(registered_msg &&other) 
-		: registration_time(other.registration_time),
-		  msg(move(other.msg)) {}
-
+		: msg(move(other.msg)) {}
 	wrapped_buffer<uint8_t> get_buffer() { return msg; }
 
 };
@@ -173,7 +169,7 @@ void handler::receive_payload() {
 		/* register message and send back its id */
 		{
 			uint32_t id = nonce_gen32();
-			auto pair = g_messages[this->id].insert(make_pair(id, registered_msg(time(NULL), msg)));
+			auto pair = g_messages[this->id].insert(make_pair(id, registered_msg(msg)));
 			g_log<CTRL>("Registering message ", regid, (struct bitcoin::packed_message *) msg->payload);
 			uint32_t netorder;
 			if (pair.second) {
