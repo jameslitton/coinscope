@@ -152,7 +152,6 @@ void append_connect(const struct sockaddr_in &remote) {
 		memcpy(&message->payload.remote_addr, &remote, sizeof(remote));
 
 		pending_connects.push_back(pm_type(buf, sizeof(*message), message->payload.remote_addr));
-		message = (struct connect_message*)buf.const_ptr();
 	}
 }
 
@@ -321,9 +320,9 @@ int main(int argc, char *argv[]) {
 bool is_private(uint32_t ip) {
 	/* endian assumptions live here */
 	return
-		(0x000000FF & ip) == 10  ||
+		(0x000000FF & ip) == 10  || (0x000000FF & ip) == 127  || 
 		(0x0000FFFF & ip) == (192 | (168 << 8)) ||
-		(0x0000F0FF & ip) == (172 | (16 << 8));
+		(0x0000F0FF & ip) == (172 | (16 << 8)); 
 }
 
 
@@ -388,7 +387,7 @@ void append_getaddr(uint32_t handle_id, const struct sockaddr_in &remote) {
 void watch_cxn(const string &client_dir) {
 	int bitcoin_client = unix_sock_client(client_dir + "bitcoin", false);
 	bcwatch watcher(bitcoin_client, 
-	                [](struct bc_channel_msg *bc_msg) {
+	                [](unique_ptr<struct bc_channel_msg> bc_msg) {
 		                append_getaddr(bc_msg->handle_id, bc_msg->remote);
 		                cout << '(' << g_successful_connects << ") successful connect to " << *((struct sockaddr*) &bc_msg->remote) << endl;
 		                g_successful_connects += 1;
@@ -409,7 +408,7 @@ void watch_cxn(const string &client_dir) {
 			                }
 		                }
 	                },
-	                [](struct bc_channel_msg *msg) {
+	                [](unique_ptr<struct bc_channel_msg> msg) {
 		                g_outstanding_connects = min((size_t)0, g_outstanding_connects - 1);
 
 		                unsigned long expected, desired;

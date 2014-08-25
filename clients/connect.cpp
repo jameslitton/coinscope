@@ -53,7 +53,7 @@ int main(int argc, char *argv[]) {
 	string client_dir(root + "clients/");
 	int bitcoin_client = unix_sock_client(client_dir + "bitcoin", false);
 	bcwatch watcher(bitcoin_client, 
-	                [](struct bc_channel_msg *msg) {
+	                [](unique_ptr<struct bc_channel_msg> msg) {
 		                cout << "Successful connect. Details follow: " << endl;
 		                cout << "\ttime: " << msg->time << endl;
 		                cout << "\thandle_id: " << msg->handle_id << endl;
@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
 			                cout << "\ttext: " << msg->text << endl;
 		                }
 	                },
-	                [](struct bc_channel_msg *msg) {
+	                [](unique_ptr<struct bc_channel_msg> msg) {
 		                cout << "Unsuccessful connect. Details follow: " << endl;
 		                cout << "\ttime: " << msg->time << endl;
 		                cout << "\tupdate_type: " << msg->update_type << endl;

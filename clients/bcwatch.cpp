@@ -10,8 +10,8 @@
 using namespace std;
 
 bcwatch::bcwatch(int bitcoin_stream, 
-        function<void(struct bc_channel_msg *)> connect_cb,
-        function<void(struct bc_channel_msg *)> disconnect_cb) 
+                 function<void(unique_ptr<struct bc_channel_msg>)> connect_cb,
+                 function<void(unique_ptr<struct bc_channel_msg>)> disconnect_cb) 
 	: fd(bitcoin_stream), 
 	  on_connect(connect_cb), on_disconnect(disconnect_cb),
 	  read_queue(sizeof(uint32_t)) 
@@ -37,8 +37,8 @@ void bcwatch::loop_once()  {
 			} else {
 
 				const uint8_t *buf = read_queue.extract_buffer().const_ptr();
-				struct bc_channel_msg *msg = (struct bc_channel_msg *) ::operator new(read_queue.cursor());
-				memcpy(msg, buf, read_queue.cursor());
+				unique_ptr<struct bc_channel_msg> msg((struct bc_channel_msg*)::operator new(read_queue.cursor()));
+				memcpy(msg.get(), buf, read_queue.cursor());
 
 				assert(msg->msg_type == BITCOIN);
 				msg->time = ntoh(msg->time);
@@ -46,14 +46,13 @@ void bcwatch::loop_once()  {
 				msg->update_type = ntoh(msg->update_type);
 				msg->text_length = ntoh(msg->text_length);
 				
-				assert(sizeof(*msg) + msg->text_length == read_queue.cursor());
+				assert(sizeof(struct bc_channel_msg) + msg->text_length == read_queue.cursor());
 
 				if (msg->update_type & (CONNECT_SUCCESS | ACCEPT_SUCCESS)) {
-					on_connect(msg);
+					on_connect(move(msg));
 				} else {
-					on_disconnect(msg);
+					on_disconnect(move(msg));
 				}
-				delete msg;
 				                        
 				read_queue.cursor(0);
 				read_queue.to_read(4);

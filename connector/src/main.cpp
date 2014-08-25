@@ -120,7 +120,6 @@ int main(int argc, const char *argv[]) {
 			continue;
 		}
 
-		bitcoin_addr.sin_addr.s_addr = htonl(INADDR_ANY); 
 		int bitcoin_sock = Socket(AF_INET, SOCK_STREAM, 0);
 		fcntl(bitcoin_sock, F_SETFL, O_NONBLOCK);
 		int optval = 1;

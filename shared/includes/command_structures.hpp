@@ -11,7 +11,7 @@
 
 namespace ctrl {
 
-enum commands {
+enum commands { 
 	COMMAND_GET_CXN = 1,
 	COMMAND_DISCONNECT = 2,
 	COMMAND_SEND_MSG = 3

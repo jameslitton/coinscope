@@ -31,15 +31,15 @@ public:
 	   thread context, so if they run slowly, they will prevent new bc
 	   messages from coming through (they'll be queued) */
 	bcwatch(int bitcoin_stream, /* stream assumed to be ready to read and blocking */
-	        std::function<void(struct bc_channel_msg *)> connect_cb, // caller frees allocation after cb
-	        std::function<void(struct bc_channel_msg *)> disconnect_cb); //caller frees allocation after cb
+	        std::function<void(std::unique_ptr<struct bc_channel_msg>)> connect_cb,
+	        std::function<void(std::unique_ptr<struct bc_channel_msg>)> disconnect_cb);
 	void loop_once(); /* reads the length and the entire message, leaves state ready to read next length */
 	void loop_forever() { for(;;) loop_once(); }
 	~bcwatch() {};
 private:
 	int fd;
-	std::function<void(struct bc_channel_msg *)> on_connect;
-	std::function<void(struct bc_channel_msg *)> on_disconnect;
+	std::function<void(std::unique_ptr<struct bc_channel_msg>)> on_connect;
+	std::function<void(std::unique_ptr<struct bc_channel_msg>)> on_disconnect;
 	read_buffer read_queue;
 };
 
