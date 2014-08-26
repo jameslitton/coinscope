@@ -15,6 +15,14 @@ class message_types(object):
 class targets(object):
     BROADCAST = 0xFFFFFFFF;
 
+type_to_obj = {
+    message_types.BITCOIN_PACKED_MESSAGE : bitcoin_msg,
+    message_types.COMMAND : command_msg,
+    message_types.REGISTER : register_msg,
+    message_types.CONNECT : connect_msg
+}
+
+
 class message(object): # Just a generic message
     def __init__(self, message_type, payload):
         self.version = 0; # not in the API because changes there should require monkeying with this
@@ -32,14 +40,31 @@ class message(object): # Just a generic message
             raise Exception(res);
         return message(message_type, payload)
 
-class register_message(message): # Just re-registers the client connection. Use this to garbage collect all registered messages
+class register_msg(message): # Just re-registers the client connection. Use this to garbage collect all registered messages
     def __init__(self):
         super(register_message, self).__init__(message_types.REGISTER, '');
 
-class bitcoin_message(message):
+    @staticmethod
+    def deserialize(serialization):
+        version, length, message_type = unpack('>BIB', serialization[:6]);
+        payload = serialization[6:]
+        if version != 0 or length != len(payload) or message_type != message_types.REGISTER:
+            raise Exception(res);
+        return register_msg()
+
+class bitcoin_msg(message):
     # payload is a protocol encoded bitcoin message
     def __init__(self, payload):
         super(bitcoin_message,self).__init__(message_types.BITCOIN_PACKED_MESSAGE, payload)
+
+    @staticmethod
+    def deserialize(serialization):
+        version, length, message_type = unpack('>BIB', serialization[:6]);
+        payload = serialization[6:]
+        if version != 0 or length != len(payload) or message_type != message_types.BITCOIN_PACKED_MESSAGE:
+            raise Exception(res);
+        return bitcoin_msg(payload)
+
         
     @property
     def bitcoin_msg(self):
@@ -52,7 +77,7 @@ class bitcoin_message(message):
 class connect_msg(message):
 
     def repack(self):
-        return pack('=hHI8xHHI8x', socket.AF_INET, self.r_port_, self.r_addr_, socket.AF_INET, self.r_port_, self.r_addr_)
+        return pack('=hHI8xhHI8x', socket.AF_INET, self.r_port_, self.r_addr_, socket.AF_INET, self.r_port_, self.r_addr_)
 
     def __init__(self, remote_addr, remote_port, local_addr, local_port):
         self.r_addr_ = socket.inet_aton(remote_addr)
@@ -61,6 +86,17 @@ class connect_msg(message):
         self.l_port_ = socket.htons(local_port);
 
         super(command_msg, self).__init__(message_types.CONNECT, self.repack())
+
+    @staticmethod
+    def deserialize(serialization):
+        version, length, message_type = unpack('>BIB', serialization[:6]);
+        payload = serialization[6:]
+        fam1, r_port_, r_addr_, fam2, r_port_, r_addr_ = unpack('=hHI8xhHI8x', payload)
+        if version != 0 or length != len(payload) or message_type != message_types.CONNECT:
+            raise Exception(res);
+        if fam1 != socket.AF_INET or fam2 != socket.AF_INET:
+            raise Exception("bad family")
+        return connect_msg(socket.inet_ntoa(r_addr_), socket.ntohs(r_port_), socket.inet_ntoa(l_addr_), socket.ntohs(l_port_))
 
     @property 
     def remote_addr(self):
@@ -117,6 +153,37 @@ class command_msg(message):
         self.targets_ = targets_list
         super(command_msg, self).__init__(message_types.COMMAND, self.repack())
 
+    @staticmethod
+    def deserialize(serialization):
+        version, length, message_type = unpack('>BIB', serialization[:6]);
+        payload = serialization[6:]
+
+        if version != 0 or length != len(payload) or message_type != message_types.COMMAND:
+            raise Exception(res);
+
+
+        # god python's pack is awful
+        if (len(payload) < 9 or (len(payload) - 9) % 4 != 0):
+            raise Exception("bad payload", len(payload))
+        ints = (len(payload) - 9) / 4
+        targets = ()
+
+        if (ints > 0):
+            packstr = '>BII{0}I'.format(ints);
+        else:
+            packstr = '>BII'
+
+        res = unpack(packstr, payload);
+
+        command = res[0]
+        message_id = res[1]
+        targets = res[3:]
+
+        if res[2] != len(targets):
+            raise Exception("target count and target list mismatch")
+        return command_msg(command, message_id, targets)
+
+
     @property
     def command(self):
         return self.command_
@@ -143,3 +210,18 @@ class command_msg(message):
     def targets(self,value):
         self.targets_ = value;
         self.payload = self.repack();
+
+def deserialize_message(serialization):
+    version, length, message_type = unpack('>BIB', serialization[:6]);
+    payload = serialization[6:]
+    if version != 0 or length != len(payload):
+        raise Exception(res);
+
+    if not type_to_obj.has_key(message_type):
+        raise Exception(res)
+
+    # Yes, this does cause the unpack to happen again. I'm not very
+    # good with python with respect to getting rid of that kind of
+    # thing. If you find youself doing a lot of blind deserialization
+    # (I figure this is mostly for debugging) you'll want to fix that)
+    return type_to_obj[message_type].deserialize(serialization);
