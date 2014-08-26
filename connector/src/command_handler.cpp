@@ -139,6 +139,7 @@ void handler::receive_header() {
 			uint32_t netorder = hton(regid);
 			write_queue.append((uint8_t*)&netorder, sizeof(netorder));
 			state |= SEND_MESSAGE;
+			g_messages.erase(oldid);
 			/* msg->payload should be zero length here */
 			/* send back their new user id */
 		} else {
