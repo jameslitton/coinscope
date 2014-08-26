@@ -3,7 +3,13 @@
 clients/connect
 clients/get_nodes
 clients/spider
+clients/cycle
+clients/getaddr
+tools/logfixer
 connector/main
 logclient/console
 logclient/verbatim
 logserver/main
+*.out
+*.pyc
+\#*#
