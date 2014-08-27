@@ -6,11 +6,24 @@ class commands(object):
     COMMAND_DISCONNECT = 2;
     COMMAND_SEND_MSG = 3;
 
+    str_mapping = {
+        1 : 'COMMAND_GET_CXN',
+        2 : 'COMMAND_DISCONNECT',
+        3 : 'COMMAND_SEND_MSG'
+    }
+
 class message_types(object):
     BITCOIN_PACKED_MESSAGE = 1;
     COMMAND = 2;
-    REGISTER= 3;
+    REGISTER = 3;
     CONNECT = 4;
+
+    str_mapping = {
+        1 : 'BITCOIN_PACKED_MESSAGE',
+        2 : 'COMMAND',
+        3 : 'REGISTER',
+        4 : 'CONNECT',
+    }
 
 class targets(object):
     BROADCAST = 0xFFFFFFFF;
