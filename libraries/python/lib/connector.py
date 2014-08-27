@@ -28,13 +28,6 @@ class message_types(object):
 class targets(object):
     BROADCAST = 0xFFFFFFFF;
 
-type_to_obj = {
-    message_types.BITCOIN_PACKED_MESSAGE : bitcoin_msg,
-    message_types.COMMAND : command_msg,
-    message_types.REGISTER : register_msg,
-    message_types.CONNECT : connect_msg
-}
-
 
 class message(object): # Just a generic message
     def __init__(self, message_type, payload):
@@ -238,3 +231,12 @@ def deserialize_message(serialization):
     # thing. If you find youself doing a lot of blind deserialization
     # (I figure this is mostly for debugging) you'll want to fix that)
     return type_to_obj[message_type].deserialize(serialization);
+
+type_to_obj = {
+    message_types.BITCOIN_PACKED_MESSAGE : bitcoin_msg,
+    message_types.COMMAND : command_msg,
+    message_types.REGISTER : register_msg,
+    message_types.CONNECT : connect_msg
+}
+
+
