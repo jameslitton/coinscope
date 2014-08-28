@@ -54,7 +54,7 @@ handler::~handler() {
 
 void foreach_handlers(const struct command_msg *msg, std::function<void(pair<const uint32_t, bc::handler*>&)> f) {
 	uint32_t target_cnt = ntoh(msg->target_cnt);
-	if (target_cnt == 0) {
+	if (target_cnt == 1 && msg->targets[0] == BROADCAST_TARGET) {
 		for_each(bc::g_active_handlers.begin(), bc::g_active_handlers.end(), f);
 	} else {
 		for(uint32_t i = 0; i < target_cnt; ++i) {

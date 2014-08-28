@@ -106,6 +106,9 @@ void print_message(read_buffer &input_buf) {
 		case PEER_RESET:
 			cout << "PEER_RESET";
 			break;
+		case CONNECTOR_DISCONNECT:
+			cout << "CONNECTOR_DISCONNECT";
+			break;
 		default:
 			cout << "Unknown update type(" << update_type << ")";
 			break;

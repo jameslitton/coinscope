@@ -1,6 +1,8 @@
 from struct import pack,unpack
 import socket
 
+from common import *
+
 class commands(object):
     COMMAND_GET_CXN = 1;
     COMMAND_DISCONNECT = 2;
@@ -61,7 +63,7 @@ class register_msg(message): # Just re-registers the client connection. Use this
 class bitcoin_msg(message):
     # payload is a protocol encoded bitcoin message
     def __init__(self, payload):
-        super(bitcoin_message,self).__init__(message_types.BITCOIN_PACKED_MESSAGE, payload)
+        super(bitcoin_msg,self).__init__(message_types.BITCOIN_PACKED_MESSAGE, payload)
 
     @staticmethod
     def deserialize(serialization):
@@ -86,31 +88,31 @@ class connect_msg(message):
         return pack('=hHI8xhHI8x', socket.AF_INET, self.r_port_, self.r_addr_, socket.AF_INET, self.r_port_, self.r_addr_)
 
     def __init__(self, remote_addr, remote_port, local_addr, local_port):
-        self.r_addr_ = socket.inet_aton(remote_addr)
+        self.r_addr_ = inet_aton(remote_addr)
         self.r_port_ = socket.htons(remote_port);
-        self.l_addr_ = socket.inet_aton(local_addr)
+        self.l_addr_ = inet_aton(local_addr)
         self.l_port_ = socket.htons(local_port);
 
-        super(command_msg, self).__init__(message_types.CONNECT, self.repack())
+        super(connect_msg, self).__init__(message_types.CONNECT, self.repack())
 
     @staticmethod
     def deserialize(serialization):
         version, length, message_type = unpack('>BIB', serialization[:6]);
         payload = serialization[6:]
-        fam1, r_port_, r_addr_, fam2, r_port_, r_addr_ = unpack('=hHI8xhHI8x', payload)
+        fam1, r_port_, r_addr_, fam2, l_port_, l_addr_ = unpack('=hHI8xhHI8x', payload)
         if version != 0 or length != len(payload) or message_type != message_types.CONNECT:
             raise Exception(res);
         if fam1 != socket.AF_INET or fam2 != socket.AF_INET:
             raise Exception("bad family")
-        return connect_msg(socket.inet_ntoa(r_addr_), socket.ntohs(r_port_), socket.inet_ntoa(l_addr_), socket.ntohs(l_port_))
+        return connect_msg(inet_ntoa(r_addr_), socket.ntohs(r_port_), inet_ntoa(l_addr_), socket.ntohs(l_port_))
 
     @property 
     def remote_addr(self):
-        return socket.inet_ntoa(self.r_addr_)
+        return inet_ntoa(self.r_addr_)
 
     @remote_addr.setter
     def remote_addr(self,value):
-        self.r_addr_ = socket.inet_aton(remote_addr)
+        self.r_addr_ = inet_aton(remote_addr)
         self.payload = self.repack();
 
     @property 
@@ -125,11 +127,11 @@ class connect_msg(message):
 
     @property 
     def local_addr(self):
-        return socket.inet_ntoa(self.l_addr_)
+        return inet_ntoa(self.l_addr_)
 
     @local_addr.setter
     def local_addr(self,value):
-        self.l_addr_ = socket.inet_aton(local_addr)
+        self.l_addr_ = inet_aton(local_addr)
         self.payload = self.repack();
 
     @property 
@@ -148,7 +150,8 @@ class command_msg(message):
     def repack(self):
         if (len(self.targets_) > 0):
             packstr = '>BII{0}I'.format(len(self.targets_));
-            return pack(packstr, self.command_, self.message_id_, len(self.targets_), *self.targets_);
+            tl = map(socket.htonl, self.targets_)
+            return pack(packstr, self.command_, self.message_id_, len(self.targets_), *tl);
         else:
             return pack('>BII', self.command_, self.message_id_, 0)
 
@@ -231,6 +234,70 @@ def deserialize_message(serialization):
     # thing. If you find youself doing a lot of blind deserialization
     # (I figure this is mostly for debugging) you'll want to fix that)
     return type_to_obj[message_type].deserialize(serialization);
+
+class connection_info(object):
+    # largely a copy of another structure above. Should be refactored
+    def repack(self):
+        return pack('>I', self.handle_id) + pack('=hHI8xhHI8x', socket.AF_INET, self.r_port_, self.r_addr_, socket.AF_INET, self.r_port_, self.r_addr_)
+
+    def __init__(self, handle_id, remote_addr, remote_port, local_addr, local_port):
+        self.handle_id = handle_id
+        self.r_addr_ = inet_aton(remote_addr)
+        self.r_port_ = socket.htons(remote_port);
+        self.l_addr_ = inet_aton(local_addr)
+        self.l_port_ = socket.htons(local_port);
+
+    @staticmethod
+    def deserialize(serialization):
+        handle_id = unpack('>I', serialization[:4])
+        payload = serialization[4:]
+        fam1, r_port_, r_addr_, fam2, l_port_, l_addr_ = unpack('=hHI8xhHI8x', payload)
+        if fam1 != socket.AF_INET or fam2 != socket.AF_INET:
+            raise Exception("bad family")
+        return connection_info(handle_id, 
+                               inet_ntoa(r_addr_), 
+                               socket.ntohs(r_port_), 
+                               inet_ntoa(l_addr_), 
+                               socket.ntohs(l_port_))
+
+    @property 
+    def remote_addr(self):
+        return inet_ntoa(self.r_addr_)
+
+    @remote_addr.setter
+    def remote_addr(self,value):
+        self.r_addr_ = inet_aton(remote_addr)
+        self.payload = self.repack();
+
+    @property 
+    def remote_port(self):
+        return socket.ntohs(self.r_port_)
+
+    @remote_port.setter
+    def remote_port(self,value):
+        self.r_port_ = socket.htons(value)
+        self.payload = self.repack()
+        
+
+    @property 
+    def local_addr(self):
+        return inet_ntoa(self.l_addr_)
+
+    @local_addr.setter
+    def local_addr(self,value):
+        self.l_addr_ = inet_aton(local_addr)
+        self.payload = self.repack();
+
+    @property 
+    def local_port(self):
+        return socket.ntohs(self.l_port_)
+
+    @local_port.setter
+    def local_port(self,value):
+        self.l_port_ = socket.htons(value)
+        self.payload = self.repack()
+        
+
 
 type_to_obj = {
     message_types.BITCOIN_PACKED_MESSAGE : bitcoin_msg,
