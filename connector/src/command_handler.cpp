@@ -156,6 +156,8 @@ void handler::receive_header() {
 	}
 }
 
+static uint32_t g_message_ids = 1;
+
 void handler::receive_payload() {
 	wrapped_buffer<uint8_t> readbuf = read_queue.extract_buffer();
 	const struct message *msg = (const struct message*) readbuf.const_ptr();
@@ -169,18 +171,24 @@ void handler::receive_payload() {
 	case BITCOIN_PACKED_MESSAGE:
 		/* register message and send back its id */
 		{
-			uint32_t id = nonce_gen32();
-			auto pair = g_messages[this->id].insert(make_pair(id, registered_msg(msg)));
-			g_log<CTRL>("Registering message ", regid, (struct bitcoin::packed_message *) msg->payload);
-			uint32_t netorder;
-			if (pair.second) {
-				netorder = hton(id);
-				g_log<CTRL>("message registered", regid, id);
+			const struct bitcoin::packed_message *bc_msg = (struct bitcoin::packed_message *) msg->payload;
+			uint32_t netid = 0;
+			if (ntoh(msg->length) < sizeof(struct bitcoin::packed_message) || 
+			    ntoh(msg->length) != sizeof(struct bitcoin::packed_message) + bc_msg->length) {
+				g_log<ERROR>("Attempted to register invalid message");
 			} else {
-				netorder = hton((uint32_t)0);
-				g_log<ERROR>("Duplicate id generated, surprising");
+				uint32_t id = g_message_ids++;
+				auto pair = g_messages[this->id].insert(make_pair(id, registered_msg(msg)));
+				g_log<CTRL>("Registering message ", regid, (struct bitcoin::packed_message *) msg->payload);
+				if (pair.second) {
+					netid = hton(id);
+					g_log<CTRL>("message registered", regid, id);
+				} else {
+					netid = 0;
+					g_log<ERROR>("Duplicate id generated, surprising");
+				}
 			}
-			write_queue.append((uint8_t*)&netorder, sizeof(netorder));
+			write_queue.append((uint8_t*)&netid, sizeof(netid));
 			state |= SEND_MESSAGE;
 		}
 		break;

@@ -55,7 +55,7 @@ elif args.test == "getaddr":
     logsock.connect("/tmp/logger/clients/bitcoin_msg")
 
     getaddr = pack('<I12sII', 0xD9B4BEF9, "getaddr", 0, 0xE2E0F65D)
-    msg = bitcoin_msg(getaddr)
+    msg = bitcoin_msg(getaddr);
 
     ser = msg.serialize()
     do_send(sock, ser)
@@ -64,18 +64,22 @@ elif args.test == "getaddr":
     rid, = unpack('>I', rid)  # message is now saved and can be sent to users with this id
     print "rid is " + str(rid)
 
-    cmsg = command_msg(commands.COMMAND_SEND_MSG, rid, [targets.BROADCAST])
-    ser = cmsg.serialize()
-    do_send(sock, ser)
+    if (rid == 0):
+        print "Invalid message"
+    else:
+        cmsg = command_msg(commands.COMMAND_SEND_MSG, rid, [targets.BROADCAST])
+        ser = cmsg.serialize()
+        do_send(sock, ser)
 
-    while(True):
-        length = logsock.recv(4, socket.MSG_WAITALL);
-        length, = unpack('>I', length)
-        record = logsock.recv(length, socket.MSG_WAITALL)
-        log_type, timestamp, rest = logger.log.deserialize_parts(record)
-        log = logger.type_to_obj[log_type].deserialize(timestamp, rest)
-        print log
-        break
+        while(True):
+            length = logsock.recv(4, socket.MSG_WAITALL);
+            length, = unpack('>I', length)
+            record = logsock.recv(length, socket.MSG_WAITALL)
+            log_type, timestamp, rest = logger.log.deserialize_parts(record)
+            log = logger.type_to_obj[log_type].deserialize(timestamp, rest)
+            print log
+            break
+
 elif args.test == "get_cxn":
     cmsg = command_msg(commands.COMMAND_GET_CXN, 0)
     ser = cmsg.serialize()
