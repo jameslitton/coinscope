@@ -41,6 +41,7 @@ public:
 
 };
 
+/* TODO, make a vector of registered_messages */
 map<uint32_t, map<uint32_t, registered_msg> > g_messages; /* handle_id, register_id, mesg */
 
 

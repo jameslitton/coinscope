@@ -140,7 +140,7 @@ class bitcoin_msg_log(log):
     @staticmethod
     def deserialize(timestamp, rest):
         handle_id, is_sender = unpack('>I?', rest[:5])
-        return bitcoin_msg_log(timestamp, handle_id, is_sender, rest[6:])
+        return bitcoin_msg_log(timestamp, handle_id, is_sender, rest[5:])
 
     def __str__(self):
         return "[{0}] {1}: handle_id: {2}, is_sender: {3}, bitcoin_msg: (ommitted)".format(unix2str(self.timestamp), log_types.str_mapping[self.log_type], self.handle_id, self.is_sender)
