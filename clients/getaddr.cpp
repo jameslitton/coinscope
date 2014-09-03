@@ -38,62 +38,50 @@
 using namespace std;
 using namespace ctrl;
 
-/* Cycle through all the active connections with the following policy:
+uint32_t g_msg_id; /* left in network byte order */
 
-   If the connection originated from us (our local port is ephemeral),
-   disconnect and immediately attempt to reconnect.
-
-   If the connection originated external to us, attempt to
-   connect. Upon success, disconnect old connection. 
-*/
-
-struct outgoing_message {
-	wrapped_buffer<uint8_t> buffer;
-	size_t length;
-};
-
-struct outgoing_message connect_msg(const struct sockaddr_in &remote) {
-	wrapped_buffer<uint8_t> buf(sizeof(struct connect_message));
-	struct connect_message *message = (struct connect_message*) buf.ptr();
-
-	message->version = 0; 
-	message->length = hton((uint32_t)sizeof(connect_payload));
-	message->message_type = CONNECT;
-	message->payload.local_addr.sin_family = AF_INET;
-	message->payload.local_addr.sin_addr.s_addr = 0; /* current version of connector ignores this */
-	message->payload.local_addr.sin_port = 0;
-
-	memcpy(&message->payload.remote_addr, &remote, sizeof(remote));
-	struct outgoing_message rv = { buf, sizeof(*message) };
-	return rv;
-}
-
-struct outgoing_message disconnect_msg(uint32_t nw_handle_id) {
-	uint32_t payload_sz = sizeof(struct command_msg) + 4;
-	wrapped_buffer<uint8_t> buf(sizeof(struct message) + payload_sz);
-	struct message *msg = (struct message*) buf.ptr();
-	struct command_msg *cmsg = (struct command_msg*) (buf.ptr() + sizeof(*msg));
-	msg->version = 0; 
-	msg->length = hton(payload_sz);
-	msg->message_type = COMMAND;
-	cmsg->command = COMMAND_DISCONNECT;
-	cmsg->message_id = 0;
-	cmsg->target_cnt = 1;
-	cmsg->targets[0] = nw_handle_id;
-	struct outgoing_message rv = { buf, sizeof(struct message) + payload_sz };
-	return rv;
-}
+struct register_getaddr_message {
+	struct message msg;
+	struct bitcoin::packed_message getaddr;
+} __attribute__((packed));
 
 
-struct addr_cmp {
-	bool operator()(const struct sockaddr_in &lhs, const struct sockaddr_in &rhs) {
-		int t = lhs.sin_addr.s_addr - rhs.sin_addr.s_addr;
-		if (!t) {
-			t = lhs.sin_port - rhs.sin_port;
-		}
-		return t < 0;
+void register_getaddr(int sock) {
+	/* register getaddr message */
+	unique_ptr<struct bitcoin::packed_message> getaddr(bitcoin::get_message("getaddr"));
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+	struct register_getaddr_message to_register = { {0, hton((uint32_t)sizeof(bitcoin::packed_message)), BITCOIN_PACKED_MESSAGE }, {0}};
+#pragma GCC diagnostic warning "-Wmissing-field-initializers"
+
+	memcpy(&to_register.getaddr, getaddr.get(), sizeof(to_register.getaddr));
+
+	do_write(sock, &to_register, sizeof(to_register));
+
+	/* response is to send back a uint32_t in NBO and that's all */
+
+	if (recv(sock, &g_msg_id, sizeof(g_msg_id), MSG_WAITALL) != sizeof(g_msg_id)) {
+		perror("registration read");
+		abort();
 	}
-};
+	cout << "registered message at id " << ntoh(g_msg_id) << endl;
+}
+
+
+void send_getaddr(uint32_t nw_handle_id, int fd) {
+	constexpr size_t total_len = sizeof(struct message) + sizeof(struct command_msg) + 4; /* room for one target */
+	uint8_t buffer[total_len];
+	struct message *msg = (struct message *) buffer;
+	struct command_msg *cmsg = (struct command_msg*) ((uint8_t*) msg + sizeof(struct message));
+	msg->version = 0;
+	msg->length = hton((uint32_t)sizeof(*cmsg) + 4);
+	msg->message_type = COMMAND;
+
+	cmsg->command = COMMAND_SEND_MSG;
+	cmsg->message_id = g_msg_id; /* already in NBO */
+	cmsg->target_cnt = hton(1);
+	cmsg->targets[0] = nw_handle_id; /* already in NBO */
+	do_write(fd, msg, total_len);
+}
 
 
 int main(int argc, char *argv[]) {
@@ -110,18 +98,22 @@ int main(int argc, char *argv[]) {
 	string client_dir = root + "clients/";
 	int bc_client = unix_sock_client(client_dir + "bitcoin", false);
 
-	int sock = unix_sock_client((const char*)cfg->lookup("connector.control_path"), false);
+	int control = unix_sock_client((const char*)cfg->lookup("connector.control_path"), false);
 
 
 	map<uint32_t, size_t> getaddrs_remaining;
 	mutex g_mux;
 
 
-	get_all_cxn(sock, [&](struct connection_info *info, size_t ) {
+	register_getaddr(control);
+
+	get_all_cxn(control, [&](struct connection_info *info, size_t ) {
 			getaddrs_remaining[info->handle_id] = 8;
 		});
 
+	cout << "set " << getaddrs_remaining.size() << " connections\n";
 
+	
 	bcwatch watcher(bc_client, 
 	                [](unique_ptr<struct bc_channel_msg>) { /* ignore new people */},
 	                [&](unique_ptr<struct bc_channel_msg> bc_msg) {
@@ -131,6 +123,11 @@ int main(int argc, char *argv[]) {
 
 	thread bc_thread([&]() { watcher.loop_forever(); });
 	bc_thread.detach();
+
+	for(auto &p : getaddrs_remaining) {
+		send_getaddr(p.first, control);
+		--(p.second);
+	}
 
 	int bc_msg_client = unix_sock_client(client_dir + "bitcoin_msg", false);
 	read_buffer input_buf(sizeof(uint32_t));
@@ -167,6 +164,7 @@ int main(int argc, char *argv[]) {
 						if (entries == 0 || it->second == 1) {
 							getaddrs_remaining.erase(it);
 						} else {
+							send_getaddr(nw_handle_id, control);
 							--(it->second);
 						}
 					}
