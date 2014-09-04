@@ -58,6 +58,9 @@ void foreach_handlers(const struct command_msg *msg, std::function<void(pair<con
 	if (target_cnt == 1 && msg->targets[0] == BROADCAST_TARGET) {
 		for_each(bc::g_active_handlers.begin(), bc::g_active_handlers.end(), f);
 	} else {
+		if (target_cnt > bc::g_active_handlers.size()) {
+			g_log<DEBUG>("Target count larger than all cxn", target_cnt, bc::g_active_handlers.size());
+		}
 		for(uint32_t i = 0; i < target_cnt; ++i) {
 			uint32_t target = ntoh(msg->targets[i]);
 			bc::handler_map::iterator hit = bc::g_active_handlers.find(target);

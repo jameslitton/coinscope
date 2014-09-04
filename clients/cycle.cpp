@@ -78,7 +78,7 @@ struct outgoing_message disconnect_msg(uint32_t nw_handle_id) {
 	msg->message_type = COMMAND;
 	cmsg->command = COMMAND_DISCONNECT;
 	cmsg->message_id = 0;
-	cmsg->target_cnt = 1;
+	cmsg->target_cnt = hton((uint32_t)1);
 	cmsg->targets[0] = nw_handle_id;
 	struct outgoing_message rv = { buf, sizeof(struct message) + payload_sz };
 	return rv;

@@ -78,14 +78,14 @@ int main(int argc, char *argv[]) {
 				        }
 				        data_len = mult * page_size;
 				        return [data](struct connection_info *info, size_t elt) {
-					        cout << "handle_id: " << info->handle_id << endl;
+					        cout << "handle_id: " << ntoh(info->handle_id) << endl;
 					        cout << "remote: " << *((struct sockaddr*)&info->remote_addr) << endl;
 					        cout << "local: " << *((struct sockaddr*)&info->local_addr) << endl;
 					        cout << "------------------------------------------------------------------------\n";
 					        memcpy(data+elt, &info->remote_addr, sizeof(info->remote_addr));					
 				        };
 			        } else {
-				        return [](struct connection_info *, size_t) { /* should never get called */ };
+				        return [](struct connection_info *, size_t) { /* only called with zero payload */ };
 			        }
 			
 		        });
