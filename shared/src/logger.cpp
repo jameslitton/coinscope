@@ -202,6 +202,9 @@ string type_to_str(enum log_type type) {
 	case BITCOIN_MSG:
 		return "BITCOIN_MSG";
 		break;
+	case CONNECTOR:
+		return "CONNECTOR";
+		break;
 	default:
 		return "huh?";
 		break;

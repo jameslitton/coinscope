@@ -11,13 +11,15 @@ class log_types(object):
     ERROR = 0x8; #/* strings */
     BITCOIN = 0x10; #/* general status information (strings) */
     BITCOIN_MSG = 0x20; #/* actual incoming/outgoing messages as encoded */
+    CONNECTOR = 0x40;
 
     str_mapping = {
         0x2 : 'DEBUG',
         0x4 : 'CTRL',
         0x8 : 'ERROR',
         0x10 : 'BITCOIN',
-        0x20 : 'BITCOIN_MSG'
+        0x20 : 'BITCOIN_MSG',
+        0x40 : 'CONNECTOR'
     }
 
 class update_types(object):
@@ -65,6 +67,11 @@ class debug_log(log):
     @staticmethod
     def deserialize(source_id, timestamp, rest):
         return debug_log(log_types.DEBUG, source_id, timestamp, rest)
+
+class connector_log(log):
+    @staticmethod
+    def deserialize(source_id, timestamp, rest):
+        return connector_log(log_types.CONNECTOR, source_id, timestamp, rest)
 
 class ctrl_log(log):
     @staticmethod
@@ -151,5 +158,6 @@ type_to_obj = {
 	log_types.CTRL : ctrl_log,
 	log_types.ERROR : error_log,
 	log_types.BITCOIN : bitcoin_log,
-	log_types.BITCOIN_MSG : bitcoin_msg_log
+	log_types.BITCOIN_MSG : bitcoin_msg_log,
+	log_types.CONNECTOR : bitcoin_connector_log
 }

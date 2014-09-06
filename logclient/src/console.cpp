@@ -68,7 +68,9 @@ void print_message(read_buffer &input_buf) {
 	
 	const uint8_t *msg = log->rest;
 
-	cout << time_to_str(&time) << ' ' << type_to_str(lt);
+	cout << time_to_str(&time);
+	cout << " (" << ntoh(log->source_id) << ") ";
+	cout << type_to_str(lt);
 
 	if (lt == BITCOIN_MSG) {
 		cout << " ID:" << ntoh(*((uint32_t*) msg)) << " IS_SENDER:" << *((bool*) (msg+4));

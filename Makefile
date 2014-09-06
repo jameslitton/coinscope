@@ -1,4 +1,5 @@
 all:
+	./autogen.pl
 	$(MAKE) all -C logserver
 	$(MAKE) all -C connector
 	$(MAKE) all -C logclient

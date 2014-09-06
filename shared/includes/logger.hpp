@@ -17,8 +17,9 @@ enum log_type {
 	DEBUG=0x2, /* interpret as a string */
 	CTRL=0x4, /* control messages */
 	ERROR=0x8, /* strings */
-	BITCOIN=0x10, /* general status information (strings) */
+	BITCOIN=0x10, /* general status information about bitcoin connections */
 	BITCOIN_MSG=0x20, /* actual incoming/outgoing messages as encoded */
+	CONNECTOR=0x40, /* connector status messages */
 };
 
 

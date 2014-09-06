@@ -10,6 +10,7 @@
 #include <random>
 #include <utility>
 #include <iostream>
+#include <fstream>
 
 /* standard unix libraries */
 #include <sys/types.h>
@@ -23,6 +24,7 @@
 #include <ev++.h>
 
 /* our libraries */
+#include "autogen.hpp"
 #include "bitcoin.hpp"
 #include "bitcoin_handler.hpp"
 #include "command_handler.hpp"
@@ -52,9 +54,12 @@ int main(int argc, const char *argv[]) {
 
 	cout.sync_with_stdio(false);
 	cerr.sync_with_stdio(false);
+	const char *config_file;
 	if (argc == 2) {
+		config_file = argv[1];
 		load_config(argv[1]);
 	} else {
+		config_file = "../netmine.cfg";
 		load_config("../netmine.cfg");
 	}
 
@@ -70,6 +75,7 @@ int main(int argc, const char *argv[]) {
 	} catch (const network_error &e) {
 		cerr << "WARNING: Could not connect to log server! " << e.what() << endl;
 	}
+
 
 	ev::timer logwatch;
 	logwatch.set<log_watcher>(&logpath);
@@ -136,13 +142,23 @@ int main(int argc, const char *argv[]) {
 
 	
 
-	g_log<DEBUG>("Entering event loop");
+	{
+		ifstream cfile(config_file);
+		string s("");
+		string line;
+		for(string line; getline(cfile,line);) {
+			s += line + "\n";
+		}
+		g_log<CONNECTOR>("Initiating with commit: ", commit_hash);
+		g_log<CONNECTOR>("Full config: ", s);
+		cfile.close();
+	}
 	
 	while(true) {
 		/* add timer to attempt recreation of lost control channel */
 		loop.run();
 	}
 	
-	g_log<DEBUG>("Orderly shutdown of connector");
+	g_log<CONNECTOR>("Orderly shutdown");
 	return EXIT_SUCCESS;
 }
