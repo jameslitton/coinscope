@@ -62,11 +62,11 @@ string time_to_str(const time_t *t)  {
 
 
 void print_message(read_buffer &input_buf) {
-	const uint8_t *buf = input_buf.extract_buffer().const_ptr();
-	enum log_type lt(static_cast<log_type>(buf[0]));
-	time_t time = ntoh(*( (uint64_t*)(buf+1)));
+	const struct log_format *log = (const struct log_format*) input_buf.extract_buffer().const_ptr();
+	enum log_type lt(static_cast<log_type>(log->type));
+	time_t time = ntoh(log->timestamp);
 	
-	const uint8_t *msg = buf + 8 + 1;
+	const uint8_t *msg = log->rest;
 
 	cout << time_to_str(&time) << ' ' << type_to_str(lt);
 

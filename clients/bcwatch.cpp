@@ -35,13 +35,12 @@ void bcwatch::loop_once()  {
 				read_queue.to_read(ntoh(netlen));
 				reading_len = false;
 			} else {
-
-				const uint8_t *buf = read_queue.extract_buffer().const_ptr();
+				const struct log_format *log = (const struct log_format*) read_queue.extract_buffer().const_ptr();
 				unique_ptr<struct bc_channel_msg> msg((struct bc_channel_msg*)::operator new(read_queue.cursor()));
-				memcpy(msg.get(), buf, read_queue.cursor());
-
-				assert(msg->msg_type == BITCOIN);
-				msg->time = ntoh(msg->time);
+				memcpy(msg.get(), log, read_queue.cursor());
+				assert(msg->header.type == BITCOIN);
+				msg->header.source_id = ntoh(msg->header.source_id);
+				msg->header.timestamp = ntoh(msg->header.timestamp);
 				msg->handle_id = ntoh(msg->handle_id);
 				msg->update_type = ntoh(msg->update_type);
 				msg->text_length = ntoh(msg->text_length);

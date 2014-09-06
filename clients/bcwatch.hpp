@@ -12,8 +12,7 @@
    switch, and do callbacks with the new messages */
 
 struct bc_channel_msg {
-	uint8_t msg_type; /* should ALWAYS be BITCOIN. Leaving in as a sanity check */
-	uint64_t time;
+	struct log_format header;
 	uint32_t handle_id;
 	uint32_t update_type;
 	sockaddr_in remote;

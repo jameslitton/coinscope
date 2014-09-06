@@ -55,7 +55,8 @@ int main(int argc, char *argv[]) {
 	bcwatch watcher(bitcoin_client, 
 	                [](unique_ptr<struct bc_channel_msg> msg) {
 		                cout << "Successful connect. Details follow: " << endl;
-		                cout << "\ttime: " << msg->time << endl;
+		                cout << "\tsource: " << msg->header.source_id << endl;
+		                cout << "\ttime: " << msg->header.timestamp << endl;
 		                cout << "\thandle_id: " << msg->handle_id << endl;
 		                cout << "\tupdate_type: " << msg->update_type << endl;
 		                cout << "\tremote: " << *((struct sockaddr*) &msg->remote) << endl;
@@ -67,7 +68,8 @@ int main(int argc, char *argv[]) {
 	                },
 	                [](unique_ptr<struct bc_channel_msg> msg) {
 		                cout << "Unsuccessful connect. Details follow: " << endl;
-		                cout << "\ttime: " << msg->time << endl;
+		                cout << "\tsource: " << msg->header.source_id << endl;
+		                cout << "\ttime: " << msg->header.timestamp << endl;
 		                cout << "\tupdate_type: " << msg->update_type << endl;
 		                cout << "\tremote: " << *((struct sockaddr*) &msg->remote) << endl;
 		                cout << "\ttext_length: " << msg->text_length << endl;

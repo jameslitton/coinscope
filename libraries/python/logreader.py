@@ -14,12 +14,11 @@ fp = open('verbatim.out', 'rb') # This could be a socket to logserver
 
 while(True):
     length = fp.read(4)
-    if length is None:
+    if length is None or length == 0:
         break
     length, = unpack('>I', length)
     record = fp.read(length)
-    log_type, timestamp, rest = logger.log.deserialize_parts(record)
-    
-    log = logger.type_to_obj[log_type].deserialize(timestamp, rest)
+    source_id, log_type, timestamp, rest = logger.log.deserialize_parts(record)
+    log = logger.type_to_obj[log_type].deserialize(source_id, timestamp, rest)
     print log
     

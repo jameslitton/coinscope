@@ -5,9 +5,9 @@
 
 using namespace std;
 
-void collector::append(wrapped_buffer<uint8_t> &&data, size_t len) {
+void collector::append(wrapped_buffer<uint8_t> &&data, size_t len, uint32_t source_id) {
 	
-	struct sized_buffer p(data, len);
+	struct sized_buffer p(data, len, source_id);
 	for(auto it = queues.begin(); it != queues.end(); ++it) {
 		if (it->first->interested((data.const_ptr())[0])) {
 			it->second.push_front(p);

@@ -108,9 +108,10 @@ void handler::io_cb(ev::io &watcher, int revents) {
 
 			struct sized_buffer p(collector::get().pop(this));
 			if (p.len) {
-				/* TODO: fix to not copy */
-				uint32_t len = hton((uint32_t)p.len);
+				uint32_t id = hton(p.source_id);
+				uint32_t len = hton((uint32_t)(p.len + sizeof(id)));
 				write_queue.append((uint8_t*)&len, sizeof(len));
+				write_queue.append((uint8_t*)&id, sizeof(id));
 				write_queue.append(p.buffer, p.len);
 			} else {
 				this->events = ev::NONE;

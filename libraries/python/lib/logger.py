@@ -3,6 +3,7 @@ import socket
 from datetime import *
 
 from common import *
+import traceback;
 
 class log_types(object):
     DEBUG = 0x2; #/* interpret as a string */
@@ -41,40 +42,40 @@ class update_types(object):
     }
 
 class log(object):
-    def __init__(self, log_type, timestamp, rest):
+    def __init__(self, log_type, source_id, timestamp, rest):
+        self.source_id = source_id
         self.log_type = log_type;
         self.timestamp = timestamp
         self.rest = rest
 
     @staticmethod
     def deserialize_parts(serialization):
-        log_type, timestamp = unpack('>BQ', serialization[:9])
-        rest = serialization[9:]
-        return (log_type, timestamp, rest);
-        return log(log_type, timestamp, rest)
+        source_id, log_type, timestamp = unpack('>IBQ', serialization[:13])
+        rest = serialization[13:]
+        return (source_id, log_type, timestamp, rest);
 
     @staticmethod
-    def deserialize(log_type, timestamp, rest):
-        return log(log_type, timestamp, rest)
+    def deserialize(log_type, source_id, timestamp, rest):
+        return log(log_type, source_id, timestamp, rest)
 
     def __str__(self):
-        return "[{0}] {1}: {2}".format(unix2str(self.timestamp), log_types.str_mapping[self.log_type], self.rest);
+        return "[{0}] ({1}) {2}: {3}".format(unix2str(self.timestamp), self.source_id, log_types.str_mapping[self.log_type], self.rest);
 
 class debug_log(log):
     @staticmethod
-    def deserialize(timestamp, rest):
-        return debug_log(log_types.DEBUG, timestamp, rest)
+    def deserialize(source_id, timestamp, rest):
+        return debug_log(log_types.DEBUG, source_id, timestamp, rest)
 
 class ctrl_log(log):
     @staticmethod
-    def deserialize(timestamp, rest):
-        return ctrl_log(log_types.CTRL, timestamp, rest)
+    def deserialize(source_id, timestamp, rest):
+        return ctrl_log(log_types.CTRL, source_id, timestamp, rest)
 
 
 class error_log(log):
     @staticmethod
-    def deserialize(timestamp, rest):
-        return ctrl_log(log_types.ERROR, timestamp, rest)
+    def deserialize(source_id, timestamp, rest):
+        return error_log(log_types.ERROR, source_id, timestamp, rest)
 
 class bitcoin_log(log): # bitcoin connection/disconnection events
     def repack(self):
@@ -83,7 +84,7 @@ class bitcoin_log(log): # bitcoin connection/disconnection events
         third = pack('>Is', len(self.text), self.text)
         return first + second + third
 
-    def __init__(self, timestamp, handle_id, update_type, remote_addr, remote_port, local_addr, local_port, text):
+    def __init__(self, source_id, timestamp, handle_id, update_type, remote_addr, remote_port, local_addr, local_port, text):
         self.handle_id = handle_id
         self.r_addr_ = inet_aton(remote_addr)
         self.r_port_ = socket.htons(remote_port);
@@ -92,13 +93,13 @@ class bitcoin_log(log): # bitcoin connection/disconnection events
         self.update_type = update_type 
         self.text = text
         rest = self.repack()
-        super(bitcoin_log, self).__init__(log_types.BITCOIN, timestamp, rest)
+        super(bitcoin_log, self).__init__(log_types.BITCOIN, source_id, timestamp, rest)
 
     def __str__(self):
-        return "[{0}] {1}: handle: {2} update_type: {3}, remote: {4}:{5}, local: {6}:{7}, text: {8}".format(unix2str(self.timestamp), log_types.str_mapping[self.log_type], self.handle_id, update_types.str_mapping[self.update_type], self.remote_addr, self.remote_port, self.local_addr, self.local_port, self.text);
+        return "[{0}] ({1}) {2}: handle: {3} update_type: {4}, remote: {5}:{6}, local: {7}:{8}, text: {9}".format(unix2str(self.timestamp), self.source_id, log_types.str_mapping[self.log_type], self.handle_id, update_types.str_mapping[self.update_type], self.remote_addr, self.remote_port, self.local_addr, self.local_port, self.text);
 
     @staticmethod
-    def deserialize(timestamp, rest):
+    def deserialize(source_id, timestamp, rest):
         handle_id, update_type = unpack('>II', rest[:8])
         fam1, r_port_, r_addr_, fam2, l_port_, l_addr_ = unpack('=hHI8xhHI8x', rest[8:40])
         text_len, = unpack('>I', rest[40:44])
@@ -106,7 +107,7 @@ class bitcoin_log(log): # bitcoin connection/disconnection events
             text, = unpack('>{0}s'.format(text_len), rest[44:])
         else:
             text = ''
-        return bitcoin_log(timestamp, handle_id, update_type, 
+        return bitcoin_log(source_id, timestamp, handle_id, update_type, 
                            inet_ntoa(r_addr_), socket.ntohs(r_port_), 
                            inet_ntoa(l_addr_), socket.ntohs(l_port_), text)
 
@@ -130,20 +131,20 @@ class bitcoin_msg_log(log):
     def repack(self):
         return pack('>I?', self.handle_id, self.is_sender) + self.bitcoin_msg
 
-    def __init__(self, timestamp, handle_id, is_sender, bitcoin_msg):
+    def __init__(self, source_id, timestamp, handle_id, is_sender, bitcoin_msg):
         self.handle_id = handle_id;
         self.is_sender = is_sender
         self.bitcoin_msg = bitcoin_msg
         rest = self.repack()
-        super(bitcoin_msg_log, self).__init__(log_types.BITCOIN_MSG, timestamp, rest)
+        super(bitcoin_msg_log, self).__init__(log_types.BITCOIN_MSG, source_id, timestamp, rest)
 
     @staticmethod
-    def deserialize(timestamp, rest):
+    def deserialize(source_id, timestamp, rest):
         handle_id, is_sender = unpack('>I?', rest[:5])
-        return bitcoin_msg_log(timestamp, handle_id, is_sender, rest[5:])
+        return bitcoin_msg_log(source_id, timestamp, handle_id, is_sender, rest[5:])
 
     def __str__(self):
-        return "[{0}] {1}: handle_id: {2}, is_sender: {3}, bitcoin_msg: (ommitted)".format(unix2str(self.timestamp), log_types.str_mapping[self.log_type], self.handle_id, self.is_sender)
+        return "[{0}] ({1}) {2}: handle_id: {3}, is_sender: {4}, bitcoin_msg: (ommitted)".format(unix2str(self.timestamp), self.source_id, log_types.str_mapping[self.log_type], self.handle_id, self.is_sender)
 
 type_to_obj = {
     log_types.DEBUG : debug_log,

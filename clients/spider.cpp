@@ -428,7 +428,7 @@ void watch_cxn(const string &client_dir) {
 		                }
 		                if (0) {
 			                cout << "Unsuccessful connect. " << endl;
-			                cout << "\ttime: " << msg->time << endl;
+			                cout << "\ttime: " << msg->header.timestamp << endl;
 			                cout << "\tupdate_type: " << msg->update_type << endl;
 			                cout << "\tremote: " << *((struct sockaddr*) &msg->remote) << endl;
 			                cout << "\ttext_length: " << msg->text_length << endl;

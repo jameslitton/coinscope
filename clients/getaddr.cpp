@@ -79,7 +79,10 @@ void send_getaddr(uint32_t nw_handle_id, int fd) {
 	cmsg->command = COMMAND_SEND_MSG;
 	cmsg->message_id = g_msg_id; /* already in NBO */
 	cmsg->target_cnt = hton(1);
+#pragma GCC diagnostic ignored "-Warray-bounds"
 	cmsg->targets[0] = nw_handle_id; /* already in NBO */
+#pragma GCC diagnostic warning "-Warray-bounds"
+
 	do_write(fd, msg, total_len);
 }
 
@@ -150,11 +153,11 @@ int main(int argc, char *argv[]) {
 				input_buf.to_read(ntoh(netlen));
 				reading_len = false;
 			} else {
-				const uint8_t *buf = input_buf.extract_buffer().const_ptr();
-				const uint8_t *msg = buf + 8 + 1;
-				uint32_t nw_handle_id = *((uint32_t*) msg);
-				bool is_sender = *((bool*) (msg+4));
-				const struct bitcoin::packed_message *bc_msg = (const struct bitcoin::packed_message*) (msg + 5);
+				const struct log_format *log = (const struct log_format *) input_buf.extract_buffer().const_ptr();
+				
+				uint32_t nw_handle_id = *((uint32_t*)(log->rest + 0));
+				bool is_sender = *((bool*) (log->rest + 4));
+				const struct bitcoin::packed_message *bc_msg = (const struct bitcoin::packed_message*) (log->rest + 5);
 				if (!is_sender && strcmp(bc_msg->command, "addr") == 0) {
 					/* check addr payload */
 					uint64_t entries = bitcoin::get_varint(bc_msg->payload, NULL);
