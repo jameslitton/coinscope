@@ -7,6 +7,7 @@
 #include <iostream>
 #include <utility>
 #include <iomanip>
+#include <fstream>
 
 /* standard unix libraries */
 #include <sys/types.h>
@@ -15,6 +16,7 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <signal.h>
 
 
 #include "netwrap.hpp"
@@ -26,10 +28,40 @@
 using namespace std;
 
 
+bool g_prerotate = false;
+bool g_postrotate = false;
+
+fstream logout;
+
+void sigusr(int num) {
+	if (num == SIGUSR1) {
+		g_prerotate = true;
+	} else if (num == SIGUSR2) {
+		g_postrotate = true;
+	}
+}
+
+
 void print_message(read_buffer &input_buf) {
 	const uint8_t *buf = input_buf.extract_buffer().const_ptr();
-	cout.write((const char*)buf, input_buf.cursor());
+	logout.write((const char*)buf, input_buf.cursor());
 }
+
+void open_log() {
+	const libconfig::Config *cfg(get_config());
+	if (logout.is_open()) {
+		logout.flush();
+		logout.close();
+	}
+	string g_logpath = (const char*)cfg->lookup("verbatim.logpath");
+	/* never actually use as input, but reasons */
+	logout.open(g_logpath + "verbatim.log", ios::out | ios::in | ios::ate | ios::binary );
+	if (!logout.is_open()) {
+		cerr << "Could not open log\n";
+		abort();
+	}
+}
+
 
 /* just redirect to stdout. redirect this to the file you actually want it to go to */
 
@@ -44,11 +76,20 @@ int main(int argc, char *argv[]) {
 
 	string root((const char*)cfg->lookup("logger.root"));
 
-	/* TODO: make configurable */
 	mkdir(root.c_str(), 0777);
 	string client_dir(root + "clients/");
 
+
 	int client = unix_sock_client(client_dir + "all", false);
+
+	open_log();
+
+	struct sigaction sigact;
+	sigemptyset(&sigact.sa_mask);
+	sigact.sa_handler = sigusr;
+	sigact.sa_flags = 0;
+	sigaction(SIGUSR1, &sigact, NULL);
+	sigaction(SIGUSR2, &sigact, NULL);
 
 	bool reading_len(true);
 
@@ -60,9 +101,23 @@ int main(int argc, char *argv[]) {
 		if (r == 0) {
 			cerr << "Disconnected\n";
 			return EXIT_SUCCESS;
+		} else if (r < 0 && errno == EINTR) {
+			/* fine */
 		} else if (r < 0) {
 			cerr << "Got error, " << strerror(errno) << endl;
 			return EXIT_FAILURE;
+		}
+
+		if (g_prerotate) { /* do log rotation if necessary. Don't write until rotation finished (i.e., received postrotate) */
+			logout.flush();
+			logout.close();
+
+			while(!g_postrotate) {
+				sleep(1);
+			}
+
+			open_log();
+			g_prerotate = g_postrotate = false;
 		}
 
 		if (!input_buf.hungry()) {
