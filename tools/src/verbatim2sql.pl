@@ -134,7 +134,7 @@ my %handlers = (
 
 
 sub handle_message {
-	my ($type, $timestamp, $rest) = unpack("CQ>a*", $_[0]);
+	my ($source_id, $type, $timestamp, $rest) = unpack("NCQ>a*", $_[0]);
 	if (!defined $handlers{$type}) {
 		print STDERR "Unhandled type : type\n";
 	} else {
