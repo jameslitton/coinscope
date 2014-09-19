@@ -4,6 +4,7 @@ use strict;
 use warnings;
 
 use DBI qw(:sql_types);
+use Term::ProgressBar;
 use Data::Dumper;
 
 # This reads a verbatim stream and writes it to a database.  Right now
@@ -22,7 +23,8 @@ use Data::Dumper;
 
 my $g_dbh;
 
-my %g_idcache;
+my %g_textid_cache;
+my %g_addrid_cache;
 
 sub insert_prolog {
 	my $sth = $g_dbh->prepare_cached('insert into messages (type_id, timestamp) values (?, ?)') or die $g_dbh->errstr;
@@ -31,7 +33,7 @@ sub insert_prolog {
 }
 
 sub get_text_id {
-	unless (defined $g_idcache{$_[0]}) {
+	unless (defined $g_textid_cache{$_[0]}) {
 		my $text_sth = $g_dbh->prepare_cached(q{
 insert or ignore into text_strings (txt) values (?)});
 		$text_sth->execute($_[0]);
@@ -39,10 +41,10 @@ insert or ignore into text_strings (txt) values (?)});
 select id from text_strings where txt = ?
 });
 		$text_ret->execute($_[0]);
-		$g_idcache{$_[0]} = $text_ret->fetch()->[0];
+		$g_textid_cache{$_[0]} = $text_ret->fetch()->[0];
 		$text_ret->finish;
 	}
-	return $g_idcache{$_[0]}
+	return $g_textid_cache{$_[0]}
 }
 
 sub as_text {
@@ -55,7 +57,22 @@ sub as_text {
 	}
 }
 
+sub get_addr_id {
+	my $key = $_[0] . $_[1] . $_[2];
+	unless (defined $g_addrid_cache{$key}) {
+		my $addr_sth = $g_dbh->prepare_cached(q{
+INSERT OR IGNORE into addresses (family, address, port) values (?,?,?)});
+		$addr_sth->execute($_[0], $_[1], $_[2]);
 
+		my $getaddr_sth = $g_dbh->prepare_cached(q{
+select id from addresses where family = ? and address = ? and port = ?});
+		$getaddr_sth->execute($_[0], $_[1], $_[2]);
+
+		$g_addrid_cache{$key} = $getaddr_sth->fetch()->[0];
+		$getaddr_sth->finish;
+	}
+	return $g_addrid_cache{$key}
+}
 
 sub bitcoin_handler {
 	my ($type, $timestamp, $rest) = @_;
@@ -66,22 +83,8 @@ sub bitcoin_handler {
 	    $local_family, $local_port, $local_addr, $lzeros,
 	    $text_len, $text) = unpack("NN${addr_pack}${addr_pack}NZ*", $rest);
 
-	my $addr_sth = $g_dbh->prepare_cached(q{
-INSERT OR IGNORE into addresses (family, address, port) values (?,?,?)});
-	$addr_sth->execute($remote_family, $remote_addr, $remote_port);
-	$addr_sth->execute($local_family, $local_addr, $local_port);
-
-	my $getaddr_sth = $g_dbh->prepare_cached(q{
-select id from addresses where family = ? and address = ? and port = ?});
-	$getaddr_sth->execute($remote_family, $remote_addr, $remote_port);
-
-	my $remote_id = $getaddr_sth->fetch()->[0];
-	$getaddr_sth->finish;
-
-	$getaddr_sth->execute($local_family, $local_addr, $local_port);
-	my $local_id = $getaddr_sth->fetch()->[0];
-	$getaddr_sth->finish;
-
+	my $remote_id = get_addr_id($remote_family, $remote_addr, $remote_port);
+	my $local_id = get_addr_id($local_family, $local_addr, $local_port);
 
 	my $sth = $g_dbh->prepare_cached(q{
 insert into bitcoin_cxn_messages 
@@ -145,10 +148,9 @@ sub get_handle { # init db (if necessary and return a database
                  # won't always be sqlite
 
 	my $init_stmts = q{
-PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS types (
    id INTEGER PRIMARY KEY,
-   type TEXT NOT NULL UNIQUE
+   type TEXT NOT NULL
 );
 
 INSERT OR IGNORE INTO types (id, type) VALUES
@@ -161,21 +163,20 @@ CREATE TABLE IF NOT EXISTS messages (
    timestamp INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS message_tid ON messages(type_id);
 
 CREATE TABLE IF NOT EXISTS text_strings (
    id INTEGER PRIMARY KEY,
-   txt TEXT NOT NULL UNIQUE
+   txt TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS text_messages (
-   message_id INTEGER NOT NULL UNIQUE REFERENCES messages,
+   message_id INTEGER NOT NULL REFERENCES messages,
    text_id INTEGER NOT NULL REFERENCES text_strings
 );
 
 CREATE TABLE IF NOT EXISTS bitcoin_cxn_types (
    id INTEGER PRIMARY KEY,
-   type TEXT NOT NULL UNIQUE
+   type TEXT NOT NULL
 );
 
 INSERT OR IGNORE INTO bitcoin_cxn_types (id, type) VALUES
@@ -213,7 +214,6 @@ CREATE TABLE IF NOT EXISTS bitcoin_cxn_messages (
    local_id INTEGER NOT NULL REFERENCES addresses
 );
 
-CREATE INDEX IF NOT EXISTS bc_tid ON bitcoin_cxn_messages(cxn_type_id);
 
 CREATE TABLE IF NOT EXISTS cxn_text_map (
   bitcoin_cxn_msg_id INTEGER NOT NULL UNIQUE REFERENCES bitcoin_cxn_messages,
@@ -227,8 +227,6 @@ CREATE TABLE IF NOT EXISTS bitcoin_messages (
    is_sender INTEGER NOT NULL,
    command TEXT NOT NULL
 );
-
-CREATE INDEX IF NOT EXISTS bm_command on bitcoin_messages(command);
 
 CREATE TABLE IF NOT EXISTS bitcoin_message_payloads (
   bitcoin_msg_id INTEGER NOT NULL UNIQUE REFERENCES bitcoin_messages,
@@ -271,22 +269,28 @@ WHERE t.id = m.type_id and tm.text_id = ts.id AND
 };
 
 sub main {
-	binmode(STDIN) || die "Cannot binmode STDIN";
+	my $IN = shift;
+	binmode($IN) || die "Cannot binmode IN";
+
+	my $filesize = (stat($IN))[7];
+	my $progress = Term::ProgressBar->new({count => $filesize, ETA => 'linear', name => 'data insertion'});
+	$progress->max_update_rate(1);
+	my $next_update = 0;
 
 	my $reading_len = 1;
 	my $to_read = 4;
 	my $has_read = 0;
 	my $cur;
-
-	my $count = 0;
+	my $total_read = 0;
 
 	while (1) {
-		my $rv = read(STDIN, $cur, $to_read, $has_read);
+		my $rv = read($IN, $cur, $to_read, $has_read);
 		if ($rv > 0) {
 			$to_read -= $rv;
 			$has_read += $rv;
+			$total_read += $rv;
 		} elsif ($rv == 0) {
-			print STDERR "Verbatim disconnected\n";
+			print STDERR "Done reading file\n";
 			last;
 		} elsif (! defined $rv) {
 			print STDERR "Received error on read: $!\n";
@@ -301,18 +305,39 @@ sub main {
 				handle_message($cur);
 				$reading_len = 1;
 				$to_read = 4;
-				$count = ($count + 1) % 10000;
-				if ($count == 0) {
-					$g_dbh->commit;
-					print STDERR ".";
-				}
+				$next_update = $progress->update($total_read) if $total_read > $next_update;
 			}
 			$has_read = 0;
 			$cur = "";
 		}
 	}
+	$progress->update($total_read);
 }
 
+die "Please supply a filename" if ($#ARGV == -1);
+my $filename = $ARGV[0];
+open(my $IN, '<', $filename) or die "Could not open file";
+
 $g_dbh = get_handle();
-main();
+main($IN);
+
+close($IN);
+
+my $indices = q{PRAGMA foreign_keys = ON;
+CREATE INDEX IF NOT EXISTS message_tid ON messages(type_id);
+CREATE INDEX IF NOT EXISTS bc_tid ON bitcoin_cxn_messages(cxn_type_id);
+CREATE INDEX IF NOT EXISTS bm_command on bitcoin_messages(command);
+CREATE UNIQUE INDEX IF NOT EXISTS u_types ON types(type);
+CREATE UNIQUE INDEX IF NOT EXISTS u_tstrings ON text_strings(txt);
+CREATE UNIQUE INDEX IF NOT EXISTS u_tmsg ON text_messages(message_id);
+CREATE UNIQUE INDEX IF NOT EXISTS u_bcxnt ON bitcoin_cxn_types(type);
+};
+foreach my $s (split/;/, $indices) {
+	print "$s";
+	$g_dbh->do($s);
+};
+print "committing\n";
 $g_dbh->commit;
+
+
+
