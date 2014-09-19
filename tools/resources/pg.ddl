@@ -26,10 +26,21 @@ CREATE TABLE unique_hid (
    UNIQUE(source_id, handle_id)
 );
 
+CREATE RULE unique_hid_ignore_dupes AS
+   ON INSERT TO unique_hid
+   WHERE 
+   (EXISTS (select 1 from unique_hid h where h.source_id = NEW.source_id and h.handle_id = NEW.handle_id)) DO INSTEAD NOTHING;
+
+
 CREATE TABLE text_strings (
    id serial PRIMARY KEY,
    txt TEXT NOT NULL UNIQUE
 );
+
+CREATE RULE text_strings_ignore_dupes AS
+   ON INSERT TO text_strings
+   WHERE 
+   (EXISTS (select 1 from text_strings where text_strings.txt = NEW.txt)) DO INSTEAD NOTHING;
 
 CREATE TABLE text_messages (
    message_id BIGINT NOT NULL UNIQUE REFERENCES messages(id),
@@ -67,9 +78,16 @@ CREATE TABLE addresses (
    UNIQUE(family, address, port)
 );
 
+CREATE RULE addresses_ignore_dupes AS
+   ON INSERT TO addresses
+   WHERE 
+   (EXISTS (select 1 from addresses a where 
+      a.family = NEW.family and a.address = NEW.address and a.port = NEW.port)) DO INSTEAD NOTHING;
+
+
 CREATE TABLE bitcoin_cxn_messages (
    id bigserial PRIMARY KEY,
-   message_id bigserial NOT NULL UNIQUE REFERENCES messages(id),
+   message_id bigint NOT NULL UNIQUE REFERENCES messages(id),
    cxn_type_id INTEGER NOT NULL REFERENCES bitcoin_cxn_types(id),
    hid bigint NOT NULL REFERENCES unique_hid(hid),
    remote_id INTEGER NOT NULL REFERENCES addresses(id),
@@ -89,11 +107,18 @@ CREATE TABLE commands (
    command varchar(12) NOT NULL UNIQUE
 );
 
+CREATE RULE commands_ignoredupes AS
+   ON INSERT TO commands
+   WHERE 
+   (EXISTS (select 1 from commands c where 
+      c.command = NEW.command)) DO INSTEAD NOTHING;
+
+
 CREATE TABLE bitcoin_messages (
    id bigserial PRIMARY KEY,
    message_id INTEGER NOT NULL UNIQUE REFERENCES messages(id),
    hid bigint NOT NULL REFERENCES unique_hid(hid),
-   is_sender INTEGER NOT NULL,
+   is_sender BOOLEAN NOT NULL,
    command_id INTEGER NOT NULL REFERENCES commands(id)
 );
 
