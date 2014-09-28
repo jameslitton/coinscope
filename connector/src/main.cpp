@@ -50,20 +50,14 @@ static void log_watcher(ev::timer &w, int /*revents*/) {
 	}
 }
 
-int main(int argc, const char *argv[]) {
+int main(int argc, char *argv[]) {
 
-	cout.sync_with_stdio(false);
-	cerr.sync_with_stdio(false);
-	const char *config_file;
-	if (argc == 2) {
-		config_file = argv[1];
-		load_config(argv[1]);
-	} else {
-		config_file = "../netmine.cfg";
-		load_config("../netmine.cfg");
+	if (startup_setup(argc, argv) != 0) {
+		return EXIT_FAILURE;
 	}
-
 	const libconfig::Config *cfg(get_config());
+	const char *config_file = cfg->lookup("version").getSourceFile();
+
 	signal(SIGPIPE, SIG_IGN);
 
 	cerr << "Starting up and transferring to log server" << endl;

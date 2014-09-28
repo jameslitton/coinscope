@@ -29,10 +29,8 @@ using namespace std;
 
 int main(int argc, char * argv[] ) {
 
-	if (argc == 2) {
-		load_config(argv[1]);
-	} else {
-		load_config("../netmine.cfg");
+	if (startup_setup(argc, argv) != 0) {
+		return EXIT_FAILURE;
 	}
 
 	const libconfig::Config *cfg(get_config());

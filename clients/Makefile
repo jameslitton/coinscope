@@ -1,4 +1,4 @@
-LDLIBS=-lcrypto -lconfig++ -lev -lpthread
+LDLIBS=-lcrypto -lconfig++ -lev -lpthread -lboost_program_options
 include ../makefile.defs
 
 all: connect spider get_nodes cycle getaddr

@@ -1,6 +1,6 @@
 include ../makefile.defs
 
-LDLIBS=-lev -lconfig++
+LDLIBS=-lev -lconfig++ -lboost_program_options
 
 all: main
 
