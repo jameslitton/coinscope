@@ -57,10 +57,15 @@ void open_log() {
 		logout.close();
 	}
 	string g_logpath = (const char*)cfg->lookup("verbatim.logpath");
+
+	/* create file if it doesn't exit */
+	string logfile(g_logpath + "verbatim.log");
+	int fd = open(logfile.c_str(), O_RDONLY|O_CREAT, 0777);
+	if (fd >= 0) {
+		close(fd);
+	}
 	/* never actually use as input, but reasons */
-	logout.open(g_logpath + "verbatim.log", ios::out); /* cause it to create the file if needbe */
-	logout.close();
-	logout.open(g_logpath + "verbatim.log", ios::out | ios::in | ios::ate | ios::binary );
+	logout.open(logfile, ios::out | ios::in | ios::ate | ios::binary );
 	if (!logout.is_open()) {
 		cerr << "Could not open log\n";
 		abort();

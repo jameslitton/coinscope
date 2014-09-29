@@ -14,12 +14,12 @@
 
 
 enum log_type {
-	DEBUG=0x2, /* interpret as a string */
-	CTRL=0x4, /* control messages */
-	ERROR=0x8, /* strings */
-	BITCOIN=0x10, /* general status information about bitcoin connections */
-	BITCOIN_MSG=0x20, /* actual incoming/outgoing messages as encoded */
-	CONNECTOR=0x40, /* connector status messages */
+	DEBUG=0x2, /* interpret as a string, unbuffered */
+	CTRL=0x4, /* control messages, unbuffered */
+	ERROR=0x8, /* strings, unbuffered */
+	BITCOIN=0x10, /* general status information about bitcoin connections, buffered */
+	BITCOIN_MSG=0x20, /* actual incoming/outgoing messages as encoded, buffered */
+	CONNECTOR=0x40, /* connector status messages, unbuffered */
 };
 
 
@@ -101,7 +101,8 @@ public:
 
 extern log_buffer *g_log_buffer; /* initialize with log socket and assign */
 
-
+extern size_t g_log_cursor;
+extern wrapped_buffer<uint8_t> g_log_store;
 
 template <typename T>
 void g_log_inner(wrapped_buffer<uint8_t> &wbuf, size_t &len, const T &s) {
@@ -138,6 +139,9 @@ void g_log(const std::string &val, Targs... Fargs) {
 	wrapped_buffer<uint8_t> wbuf(128);
 	uint8_t *ptr = wbuf.ptr();
 	uint8_t n = N;
+
+	ptr += 4; /* leave room for the length to be written */
+
 	std::copy((uint8_t*)&n, (uint8_t*)(&n) + 1, ptr);
 	ptr += 1;
 	
@@ -145,13 +149,21 @@ void g_log(const std::string &val, Targs... Fargs) {
 	          ptr);
 	ptr += sizeof(net_time);;
 
-	size_t len = sizeof(net_time) + 1;
+	size_t len = sizeof(net_time) + sizeof(n) + sizeof(uint32_t);
 	
 	g_log_inner(wbuf,len,val, Fargs...);
 	if (g_log_buffer) {
+		uint32_t netlen = hton((uint32_t)(len-4)); /* don't include length in length itself */
+		ptr = wbuf.ptr();
+		std::copy((uint8_t*) &netlen, ((uint8_t*)&netlen) + 4, ptr);
+		if (g_log_cursor > 0) { /* flush here to maintain ordering */ 
+			g_log_buffer->append(g_log_store, g_log_cursor);
+			g_log_cursor = 0;
+			g_log_store = wrapped_buffer<uint8_t>(4096);
+		}
 		g_log_buffer->append(wbuf, len);
 	} else {
-		std::cerr << "<<CONSOLE FALLBACK>> " << ((char*) wbuf.const_ptr() + 1 + sizeof(net_time)) << std::endl;
+		std::cerr << "<<CONSOLE FALLBACK>> " << ((char*) wbuf.const_ptr() + 1 + sizeof(net_time) + 4) << std::endl;
 	}
 }
 

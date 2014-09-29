@@ -111,7 +111,7 @@ int main(int argc, char *argv[]) {
 	register_getaddr(control);
 
 	get_all_cxn(control, [&](struct connection_info *info, size_t ) {
-			getaddrs_remaining[info->handle_id] = 8;
+			getaddrs_remaining[info->handle_id] = 16;
 		});
 
 	cout << "set " << getaddrs_remaining.size() << " connections\n";
@@ -168,7 +168,9 @@ int main(int argc, char *argv[]) {
 							getaddrs_remaining.erase(it);
 						} else {
 							send_getaddr(nw_handle_id, control);
-							--(it->second);
+							if (entries > 1) {
+								--(it->second);
+							}
 						}
 					}
 				}

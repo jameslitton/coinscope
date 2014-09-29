@@ -41,6 +41,7 @@ void write_buffer::append(const uint8_t *ptr, size_t len) {
 	to_write_ += len;
 }
 void write_buffer::append(wrapped_buffer<uint8_t> &buf, size_t len) {
+	assert(buf.allocated() >= len);
 	buffers_.emplace_back(buf, len);
 	to_write_ += len;
 }

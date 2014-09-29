@@ -9,6 +9,15 @@
 
 using namespace std;
 
+
+log_buffer *g_log_buffer;
+
+size_t g_log_cursor(0);
+wrapped_buffer<uint8_t> g_log_store(4096);
+
+
+
+
 log_buffer::log_buffer(int fd) : write_queue(), fd(fd), io() { 
 	io.set<log_buffer, &log_buffer::io_cb>(this);
 	io.set(fd, ev::WRITE);
@@ -16,8 +25,6 @@ log_buffer::log_buffer(int fd) : write_queue(), fd(fd), io() {
 }
 void log_buffer::append(wrapped_buffer<uint8_t> &ptr, size_t len) {
 	size_t to_write = write_queue.to_write();
-	uint32_t netlen = hton((uint32_t)len);
-	write_queue.append((uint8_t*)&netlen, sizeof(netlen));
 	write_queue.append(ptr, len);
 	if (to_write == 0) {
 		io.set(fd, ev::WRITE);
@@ -49,8 +56,13 @@ log_buffer::~log_buffer() {
 	close(io.fd);
 }
 
-log_buffer *g_log_buffer;
-
+static void append_buf(wrapped_buffer<uint8_t> &buf, size_t len) {
+	if (g_log_buffer) {
+		g_log_buffer->append(buf, len);
+	} else {
+		std::cerr << "<<CONSOLE FALLBACK>> " << "BITCOIN: " << " TODO: pretty print this fallback, but really, don't use the fallback\n";
+	}
+}
 
 
 template <> void g_log<BITCOIN>(uint32_t update_type, uint32_t handle_id, const struct sockaddr_in &remote, 
@@ -58,50 +70,60 @@ template <> void g_log<BITCOIN>(uint32_t update_type, uint32_t handle_id, const 
 	uint64_t net_time = hton((uint64_t)ev::now(ev_default_loop()));
 	size_t len = 1 + sizeof(net_time) + sizeof(handle_id) + sizeof(update_type) +
 		2*sizeof(remote) + sizeof(text_len) + text_len;
-	wrapped_buffer<uint8_t> wbuf(len);
-	uint8_t *ptr = wbuf.ptr();
+
+	if (len + 4 > g_log_store.allocated() - g_log_cursor) {
+		if (g_log_cursor > 0) { /* yes, may conceivably just want to grow buffer for sufficiently small cursors... */
+			append_buf(g_log_store, g_log_cursor);
+		}
+		g_log_cursor = 0;
+		g_log_store = wrapped_buffer<uint8_t>(max((size_t)4096, len+4));
+	}
+
+	uint8_t *base_ptr = g_log_store.ptr() + g_log_cursor;
+	uint8_t *cur_ptr = base_ptr;
+
+
+	uint32_t netlen = hton((uint32_t)len);
+	copy((uint8_t*) &netlen, ((uint8_t*)&netlen) + 4, cur_ptr);
+	cur_ptr += 4;
 
 	uint8_t typ = BITCOIN;
-	copy((uint8_t*) &typ, ((uint8_t*) &typ) + 1, ptr);
-	ptr += 1;
+	copy((uint8_t*) &typ, ((uint8_t*) &typ) + 1, cur_ptr);
+	cur_ptr += 1;
 
 	copy((uint8_t*) &net_time, ((uint8_t*)&net_time) + sizeof(net_time),
-	     ptr);
-	ptr += sizeof(net_time);
+	     cur_ptr);
+	cur_ptr += sizeof(net_time);
 
 	handle_id = hton(handle_id);
 	copy((uint8_t*) &handle_id, ((uint8_t*)&handle_id) + sizeof(handle_id), 
-	     ptr);
-	ptr += sizeof(handle_id);
+	     cur_ptr);
+	cur_ptr += sizeof(handle_id);
 
 	update_type = hton(update_type);
 	copy((uint8_t*) &update_type, ((uint8_t*)&update_type) + sizeof(update_type), 
-	     ptr);
-	ptr += sizeof(update_type);
+	     cur_ptr);
+	cur_ptr += sizeof(update_type);
 
 	copy((uint8_t*) &remote, ((uint8_t*)&remote) + sizeof(remote), 
-	     ptr);
-	ptr += sizeof(remote);
+	     cur_ptr);
+	cur_ptr += sizeof(remote);
 
 	copy((uint8_t*) &local, ((uint8_t*)&local) + sizeof(local), 
-	     ptr);
-	ptr += sizeof(local);
+	     cur_ptr);
+	cur_ptr += sizeof(local);
 
-	uint32_t netlen = hton((uint32_t)text_len);
-	copy((uint8_t*) &netlen, ((uint8_t*)&netlen) + sizeof(netlen), 
-	     ptr);
-	ptr += sizeof(netlen);
+	uint32_t net_txtlen = hton((uint32_t)text_len);
+	copy((uint8_t*) &net_txtlen, ((uint8_t*)&net_txtlen) + sizeof(net_txtlen), 
+	     cur_ptr);
+	cur_ptr += sizeof(net_txtlen);
 
 	if (text_len) {
-		copy((uint8_t*)text, (uint8_t*)text + text_len, ptr);
-		ptr += text_len;
-	}
-	if (g_log_buffer) {
-		g_log_buffer->append(wbuf, len);
-	} else {
-		std::cerr << "<<CONSOLE FALLBACK>> " << "BITCOIN: " << " TODO: pretty print this fallback, but really, don't use the fallback\n";
+		copy((uint8_t*)text, (uint8_t*)text + text_len, cur_ptr);
+		cur_ptr += text_len;
 	}
 
+	g_log_cursor += cur_ptr - base_ptr;
 }
 
 template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bitcoin::packed_message *m) {
@@ -109,34 +131,44 @@ template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bi
 	uint64_t net_time = hton((uint64_t)ev::now(ev_default_loop()));
 	uint32_t net_id = hton(id);
 	size_t len = 1 + sizeof(net_time) + sizeof(net_id) + 1 + sizeof(*m) + m->length;
-	wrapped_buffer<uint8_t> wbuf(len);
-	uint8_t *ptr = wbuf.ptr();
+
+	if (len + 4 > g_log_store.allocated() - g_log_cursor) {
+		if (g_log_cursor > 0) {
+			append_buf(g_log_store, g_log_cursor);
+		}
+		g_log_cursor = 0;
+		g_log_store = wrapped_buffer<uint8_t>(max((size_t)4096, len+4));
+	}
+
+	uint8_t *base_ptr = g_log_store.ptr() + g_log_cursor;
+	uint8_t *cur_ptr = base_ptr;
+
+	uint32_t netlen = hton((uint32_t)len);
+	copy((uint8_t*) &netlen, ((uint8_t*)&netlen) + 4, cur_ptr);
+	cur_ptr += 4;
 
 	uint8_t typ = BITCOIN_MSG;
-	copy((uint8_t*) &typ, ((uint8_t*) &typ) + 1, ptr);
-	ptr += 1;
+	copy((uint8_t*) &typ, ((uint8_t*) &typ) + 1, cur_ptr);
+	cur_ptr += 1;
 
 	copy((uint8_t*) &net_time, ((uint8_t*)&net_time) + sizeof(net_time),
-	     ptr);
-	ptr += sizeof(net_time);
+	     cur_ptr);
+	cur_ptr += sizeof(net_time);
 
 	copy((uint8_t*) &net_id, ((uint8_t*)&net_id) + sizeof(net_id), 
-	     ptr);
-	ptr += sizeof(net_id);
+	     cur_ptr);
+	cur_ptr += sizeof(net_id);
 
 	assert(sizeof(is_sender) == 1);
 	copy((uint8_t*) &is_sender, ((uint8_t*)&is_sender) + sizeof(is_sender), 
-	     ptr);
-	ptr += sizeof(is_sender);
+	     cur_ptr);
+	cur_ptr += sizeof(is_sender);
 
 	copy((uint8_t*) m, ((uint8_t*)m) + sizeof(*m) + m->length, 
-	     ptr);
-	ptr += sizeof(*m) + m->length;
-	if (g_log_buffer) {
-		g_log_buffer->append(wbuf, len);
-	} else {
-		std::cerr << "<<CONSOLE FALLBACK>> " << "BITCOIN_MSG ID: " << id << " IS_SENDER: " << is_sender << *m << endl;
-	}
+	     cur_ptr);
+	cur_ptr += sizeof(*m) + m->length;
+
+	g_log_cursor += cur_ptr - base_ptr;
 
 }
 

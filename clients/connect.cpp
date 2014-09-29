@@ -77,7 +77,7 @@ int main(int argc, char *argv[]) {
 	struct sockaddr_in remote_addr;
 	bzero(&remote_addr, sizeof(remote_addr));
 	remote_addr.sin_family = AF_INET;
-	if (inet_pton(AF_INET, "127.0.0.1", &remote_addr.sin_addr) != 1) {
+	if (inet_pton(AF_INET, "xxx173.69.49.106", &remote_addr.sin_addr) != 1) {
 		perror("inet_pton destination");
 		return EXIT_FAILURE;
 	}

@@ -1,20 +1,40 @@
 #include "read_buffer.hpp"
 
+#include <cstring>
 #include <stdexcept>
 
 #include <sys/socket.h>
-
 
 using namespace std;
 
 pair<int,bool> read_buffer::do_read(int fd, size_t size) {
 	pair<int,bool> rv;
+	ssize_t recv_ret = 0;
 	if (size > to_read_) {
 		throw invalid_argument("size too large for do_read");
 	}
 	buffer_.realloc(cursor_ + size);
 	assert(buffer_.allocated() >= cursor_ + size);
-	rv.first = recv(fd, buffer_.ptr() + cursor_, size, 0);
+
+	if (rb_size_ <= rb_loc_) { /* have to do a recv */
+		/* location at size, so can reset */
+		rb_size_ = rb_loc_ = 0;
+		recv_ret = recv(fd, recv_buffer_.get(), 4096, 0);
+		if (recv_ret > 0) {
+			rb_size_ += recv_ret;
+		}
+	}
+
+	if (rb_size_ <= rb_loc_) {
+		/* our recv must have failed, propagate error back up */
+		rv.first = recv_ret;
+	} else {
+		size_t rd = min(size, rb_size_ - rb_loc_);
+		memcpy(buffer_.ptr() + cursor_, recv_buffer_.get() + rb_loc_, rd);
+		rb_loc_ += rd;
+		rv.first = rd;
+	}
+
 	if (rv.first > 0) {
 		cursor_ += rv.first;
 		to_read_ -= rv.first;

@@ -19,6 +19,7 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <signal.h>
 
 /* third party libraries */
 #include <ev++.h>
@@ -50,11 +51,13 @@ static void log_watcher(ev::timer &w, int /*revents*/) {
 	}
 }
 
+
 int main(int argc, char *argv[]) {
 
 	if (startup_setup(argc, argv) != 0) {
 		return EXIT_FAILURE;
 	}
+
 	const libconfig::Config *cfg(get_config());
 	const char *config_file = cfg->lookup("version").getSourceFile();
 
@@ -134,7 +137,6 @@ int main(int argc, char *argv[]) {
 
 	ctrl::accept_handler ctrl_handler(control_sock);
 
-	
 
 	{
 		ifstream cfile(config_file);

@@ -1,13 +1,16 @@
 #ifndef READ_BUFFER_HPP
 #define READ_BUFFER_HPP
 
+#include <memory>
 #include "wrapped_buffer.hpp"
 
 /* to be used for accumulating read calls and extract realloc when ready to act on the data */
 class read_buffer { 
 public:
 	/* return value from read, whether the read is complete (i.e., buffer can be extracted) */
-	read_buffer(size_t to_read) : cursor_(0), to_read_(to_read), buffer_(to_read_) {
+	read_buffer(size_t to_read) : 
+		cursor_(0), to_read_(to_read), buffer_(std::max(to_read, (size_t)1<<10)), 
+		recv_buffer_(new uint8_t[4096]), rb_loc_(0), rb_size_(0) {
 	}
 	std::pair<int,bool> do_read(int fd); /* will read to_read_ bytes */
 	std::pair<int,bool> do_read(int fd, size_t size); /* will read size bytes */
@@ -25,7 +28,9 @@ private:
 	size_t cursor_;
 	size_t to_read_;
 	wrapped_buffer<uint8_t> buffer_;
-
+	std::unique_ptr<uint8_t[]> recv_buffer_;
+	size_t rb_loc_;
+	size_t rb_size_;
 };
 
 #endif

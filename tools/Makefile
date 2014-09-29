@@ -1,7 +1,9 @@
 include ../makefile.defs
 
-all: logfixer
+LDLIBS=-lboost_program_options
+
+all: logfixer logtruncate
 
 clean_extra:
-	rm -rf logfixer
+	rm -rf logfixer logtruncate
 

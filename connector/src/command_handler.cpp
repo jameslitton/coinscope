@@ -102,7 +102,6 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 		state |= SEND_MESSAGE;
 	} else if (msg->command == COMMAND_SEND_MSG) {
 		uint32_t message_id = ntoh(msg->message_id);
-		g_log<DEBUG>("Attempting to send command message", message_id);
 		auto it = g_messages[this->id].find(message_id);
 		if (it == g_messages[this->id].end()) {
 			g_log<ERROR>("invalid message id", message_id);
@@ -238,7 +237,7 @@ void handler::receive_payload() {
 
 void handler::do_read(ev::io &watcher, int /* revents */) {
 	ssize_t r(1);
-	while(r > 0) { 
+	while(r > 0 && read_queue.hungry()) { 
 		while (r > 0 && read_queue.hungry()) {
 			pair<int,bool> res(read_queue.do_read(watcher.fd));
 			r = res.first;
@@ -269,7 +268,6 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 				cerr << "inconceivable!" << endl;
 				break;
 			}
-			break;
 		}
 	}
 }

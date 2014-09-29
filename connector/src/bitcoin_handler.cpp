@@ -235,7 +235,7 @@ void handler::handle_message_recv(const struct packed_message *msg) {
 		int32_t given_block = *((int32_t*) (msg->payload + msg->length - 5));
 #pragma GCC diagnostic warning "-Wstrict-aliasing"
 		//cerr << "given block is " << given_block << "\n";
-		if (given_block < 400000 && given_block > g_last_block) {
+		if (given_block < 500000 && given_block > g_last_block) {
 			/* TODO: correct behavior? */
 			// There are some weird big given blocks out there.
 			g_last_block = given_block;
@@ -304,7 +304,7 @@ void handler::append_for_write(unique_ptr<struct packed_message> m) {
 void handler::do_read(ev::io &watcher, int /* revents */) {
 	assert(watcher.fd >= 0);
 	ssize_t r(1);
-	while(r > 0) { /* do all reads we can in this event handler */
+	while(r > 0 && read_queue.hungry()) { /* do all reads we can in this event handler */
 		while (r > 0 && read_queue.hungry()) {
 			pair<int,bool> res(read_queue.do_read(watcher.fd));
 			r = res.first;
@@ -435,6 +435,7 @@ void handler::do_write(ev::io &watcher, int /*revents*/) {
 }
 
 void handler::io_cb(ev::io &watcher, int revents) {
+
 	if ((state & RECV_MASK) && (revents & ev::READ)) {
 		do_read(watcher, revents);
 	}
