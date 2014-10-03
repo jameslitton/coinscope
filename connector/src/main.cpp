@@ -20,6 +20,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <signal.h>
+#include <sys/resource.h>
 
 /* third party libraries */
 #include <ev++.h>
@@ -53,6 +54,20 @@ static void log_watcher(ev::timer &w, int /*revents*/) {
 
 
 int main(int argc, char *argv[]) {
+
+	/* check limits or no point */
+
+	struct rlimit limit;
+	if (getrlimit(RLIMIT_NOFILE, &limit) != 0) {
+		cerr << "Could not get limit\n";
+		return EXIT_FAILURE;
+	}
+
+	if (limit.rlim_cur < 999900) {
+		cerr << "limit too low, aborting (" << limit.rlim_cur << ")\n";
+		return EXIT_FAILURE;
+	}
+
 
 	if (startup_setup(argc, argv) != 0) {
 		return EXIT_FAILURE;
@@ -122,6 +137,10 @@ int main(int argc, char *argv[]) {
 			g_log<ERROR>("Bad address format on address", index, strerror(errno));
 			continue;
 		}
+
+		/* TEMPORARY HACK!!!! This is because on EC2 the local interface is not the same as the public interface */
+		bitcoin_addr.sin_addr.s_addr = INADDR_ANY;
+
 
 		int bitcoin_sock = Socket(AF_INET, SOCK_STREAM, 0);
 		fcntl(bitcoin_sock, F_SETFL, O_NONBLOCK);

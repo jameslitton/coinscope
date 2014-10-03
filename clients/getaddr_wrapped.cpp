@@ -33,7 +33,7 @@
 
 using namespace std;
 
-#define TIMEOUT (36*60*60)
+#define TIMEOUT (2*60*60)
 
 //#define FIND_CXN
 
@@ -230,6 +230,7 @@ int main(int argc, char *argv[]) {
 			cerr << "WARNING: Could not connect to log server! " << e.what() << endl;
 		}
 
+		time_t start_time = time(NULL);
 		g_log<DEBUG>("Initiating GETADDR probe");
 		cerr << "Initiating GETADDR probe" << endl;
 
@@ -327,23 +328,23 @@ int main(int argc, char *argv[]) {
 			exit(0);
 		} else if (child > 0) {
 			sigaction(SIGCHLD, &sigact, NULL);
-			int count = 0;
 			while(true) {
 				if (lastpid != child) {
-					if (count++ > 60*60) {
+					time_t now = time(NULL);
+					if (now - start_time >= 60*60) {
 						cerr << "Manually killing getaddr" << endl;
 						if (kill(child, SIGTERM) < 0) {
 							cerr << "Could not send SIGTERM to " << child << endl;
 						}
 					}
-					sleep(1);
+					sleep(60*60 - (now - start_time));
 				} else {
 					break;
 				}
 			}
 		}
 
-		cerr << endl << endl;
+		filename = g_logpath + "/" + "verbatim.log";
 
 	}
 
