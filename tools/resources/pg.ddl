@@ -59,7 +59,8 @@ INSERT INTO bitcoin_cxn_types (id, type) VALUES
 (8, 'WRITE_DISCONNECT'),
 (16, 'UNEXPECTED_ERROR'),
 (32, 'CONNECT_FAILURE'),
-(64, 'PEER_RESET');
+(64, 'PEER_RESET'),
+(128, 'CONNECTOR_DISCONNECT');
 
 
 CREATE TABLE addr_families (
