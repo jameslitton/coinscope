@@ -123,10 +123,12 @@ void handler::io_cb(ev::io &watcher, int revents) {
 }	
 
 void handler::suicide() {
-	io.stop();
-	close(io.fd);
-	io.fd = -1;
-	delete this; /* eek, gotta be on the heap. TODO: fixme */
+	if (io.fd >= 0) {
+		io.stop();
+		close(io.fd);
+		io.fd = -1;
+		delete this; /* eek, gotta be on the heap. TODO: fixme */
+	}
 }
 
 
