@@ -29,7 +29,9 @@ private:
 		size_t cursor; /* location from which we've already written bytes */
 		size_t writable; /* first _writable_ bytes in buffer are valid to write */
 		wrapped_buffer<uint8_t> buffer;
-		buffer_container(wrapped_buffer<uint8_t> b, size_t len) : cursor(0), writable(len), buffer(b) {}
+		buffer_container(wrapped_buffer<uint8_t> b, size_t len) : cursor(0), writable(len), buffer(b) {
+			assert(buffer.allocated() >= len);
+		}
 
 
 		/* TODO: make smarter */

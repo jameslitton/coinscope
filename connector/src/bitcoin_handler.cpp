@@ -61,8 +61,8 @@ void connect_handler::setup_handler(int fd) {
 	if (getsockname(fd, (struct sockaddr*) &local, &len) != 0) {
 		g_log<ERROR>(strerror(errno));
 	} 
-	handler *h = new handler(fd, SEND_VERSION_INIT, remote_addr_, local);
-	g_active_handlers.insert(make_pair(h->get_id(), h));
+	unique_ptr<handler> h(new handler(fd, SEND_VERSION_INIT, remote_addr_, local));
+	g_active_handlers.insert(make_pair(h->get_id(), move(h)));
 }
 
 void connect_handler::io_cb(ev::io &watcher, int /*revents*/) {
@@ -147,11 +147,8 @@ void accept_handler::io_cb(ev::io &watcher, int /*revents*/) {
 
 	/* TODO: if can be converted to smarter pointers sensibly, consider, but
 	   since libev doesn't use them makes it hard */
-	handler *h(new handler(client, RECV_VERSION_REPLY_HDR, addr, local));
-	g_active_handlers.insert(make_pair(h->get_id(), h));
-	for(auto it = g_inactive_handlers.begin(); it != g_inactive_handlers.end(); ++it) {
-		delete *it;
-	}
+	unique_ptr<handler> h(new handler(client, RECV_VERSION_REPLY_HDR, addr, local));
+	g_active_handlers.insert(make_pair(h->get_id(), move(h)));
 	g_inactive_handlers.clear();
 }
 
@@ -235,7 +232,7 @@ void handler::handle_message_recv(const struct packed_message *msg) {
 		int32_t given_block = *((int32_t*) (msg->payload + msg->length - 5));
 #pragma GCC diagnostic warning "-Wstrict-aliasing"
 		//cerr << "given block is " << given_block << "\n";
-		if (given_block < 400000 && given_block > g_last_block) {
+		if (given_block < 500000 && given_block > g_last_block) {
 			/* TODO: correct behavior? */
 			// There are some weird big given blocks out there.
 			g_last_block = given_block;
@@ -265,13 +262,15 @@ void handler::suicide() {
 	io.stop();
 	close(io.fd);
 	io.fd = -1;
-	g_active_handlers.erase(id);
-	/* delete everyone but me */
-	for(auto it = g_inactive_handlers.begin(); it != g_inactive_handlers.end(); ++it) {
-		delete *it;
+	if (g_active_handlers.find(id) == g_active_handlers.end()) {
+		cerr << "That's not supposed to happen\n";
+	} else {
+		unique_ptr<handler> ptr(move(g_active_handlers[id]));
+		g_active_handlers.erase(id);
+		/* delete everyone but me */
+		g_inactive_handlers.clear();
+		g_inactive_handlers.emplace(move(ptr)); 
 	}
-	g_inactive_handlers.clear();
-	g_inactive_handlers.insert(this);
 }
 
 void handler::append_for_write(const struct packed_message *m) {
@@ -304,7 +303,7 @@ void handler::append_for_write(unique_ptr<struct packed_message> m) {
 void handler::do_read(ev::io &watcher, int /* revents */) {
 	assert(watcher.fd >= 0);
 	ssize_t r(1);
-	while(r > 0) { /* do all reads we can in this event handler */
+	while(r > 0 && read_queue.hungry()) { /* do all reads we can in this event handler */
 		while (r > 0 && read_queue.hungry()) {
 			pair<int,bool> res(read_queue.do_read(watcher.fd));
 			r = res.first;
@@ -435,6 +434,17 @@ void handler::do_write(ev::io &watcher, int /*revents*/) {
 }
 
 void handler::io_cb(ev::io &watcher, int revents) {
+
+	if (io.fd == -1) {
+		if (g_active_handlers.find(id) != g_active_handlers.end()) {
+			g_log<DEBUG>("Handler ", id, " has invalid file descriptor but is in active set");
+			unique_ptr<handler> ptr(move(g_active_handlers[id]));
+			g_active_handlers.erase(id);
+			g_inactive_handlers.emplace(move(ptr)); 
+		}
+		return;
+	}
+
 	if ((state & RECV_MASK) && (revents & ev::READ)) {
 		do_read(watcher, revents);
 	}

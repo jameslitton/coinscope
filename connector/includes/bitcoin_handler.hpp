@@ -83,20 +83,20 @@ private:
 };
 
 struct handler_hashfunc {
-	size_t operator()(const handler *h) const {
+	size_t operator()(const std::unique_ptr<handler> &h) const {
 		return std::hash<uint32_t>()(h->get_id());
 	}
 };
 
 struct handler_equal {
-	bool operator()(const handler* lhs, const handler* rhs) const {
+	bool operator()(const std::unique_ptr<handler> &lhs, const std::unique_ptr<handler> &rhs) const {
 		return lhs->get_id() == rhs->get_id();
 	}
 };
 
 
-typedef std::unordered_set<handler*, handler_hashfunc, handler_equal> handler_set;
-typedef std::map<uint32_t, handler*> handler_map;
+typedef std::unordered_set<std::unique_ptr<handler>, handler_hashfunc, handler_equal> handler_set;
+typedef std::map<uint32_t, std::unique_ptr<handler> > handler_map;
 
 /* since I have to work with libev, hard to get away from raw pointers */
 extern handler_map g_active_handlers;

@@ -5,6 +5,10 @@ clients/get_nodes
 clients/spider
 clients/cycle
 clients/getaddr
+clients/getaddr_wrapped
+clients/connect_harvester
+clients/reconnector
+tools/logtruncate
 tools/logfixer
 connector/main
 logclient/console

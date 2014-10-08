@@ -17,7 +17,7 @@
 
 
 #include "network.hpp"
-#include "command_structures.hpp"
+#include "connector.hpp"
 #include "bitcoin.hpp"
 #include "config.hpp"
 #include "logger.hpp"
@@ -27,14 +27,8 @@
 
 
 using namespace std;
-using namespace ctrl;
+using namespace ctrl::easy;
 
-struct connect_message {
-	uint8_t version;
-	uint32_t length;
-	uint8_t message_type;
-	struct connect_payload payload;
-} __attribute__((packed));
 
 int main(int argc, char *argv[]) {
 
@@ -79,31 +73,31 @@ int main(int argc, char *argv[]) {
 	                });
 	                
 
-#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
-	struct connect_message message = { 0, hton((uint32_t)sizeof(connect_payload)), CONNECT, {{0},{0}} };
-#pragma GCC diagnostic warning "-Wmissing-field-initializers"
-
 	
-
-	message.payload.remote_addr.sin_family = AF_INET;
-	if (inet_pton(AF_INET, "127.0.0.1", &message.payload.remote_addr.sin_addr) != 1) {
+	struct sockaddr_in remote_addr;
+	bzero(&remote_addr, sizeof(remote_addr));
+	remote_addr.sin_family = AF_INET;
+	if (inet_pton(AF_INET, "xxx173.69.49.106", &remote_addr.sin_addr) != 1) {
 		perror("inet_pton destination");
 		return EXIT_FAILURE;
 	}
 
-	message.payload.local_addr.sin_family = AF_INET;
-	if (inet_pton(AF_INET, "127.0.0.1", &message.payload.local_addr.sin_addr) != 1) {
+	struct sockaddr_in local_addr;
+	bzero(&local_addr, sizeof(local_addr));
+	local_addr.sin_family = AF_INET;
+	if (inet_pton(AF_INET, "127.0.0.1", &local_addr.sin_addr) != 1) {
 		perror("inet_pton source");
 		return EXIT_FAILURE;
 	}
 
-	message.payload.remote_addr.sin_port = hton(static_cast<uint16_t>(8333));
-	message.payload.local_addr.sin_port = hton(static_cast<uint16_t>(0xdead));
+	remote_addr.sin_port = hton(static_cast<uint16_t>(8333));
+	local_addr.sin_port = hton(static_cast<uint16_t>(0xdead));
 
-	cout << hton((uint32_t)sizeof(connect_payload)) << endl;
-	cout << ntoh(message.length) << endl;
+	connect_msg message(&remote_addr, &local_addr);
 
-	if (write(sock, &message, sizeof(message)) != sizeof(message)) {
+	pair<wrapped_buffer<uint8_t>, size_t> p = message.serialize();
+
+	if (write(sock, p.first.ptr(), p.second) != p.second) {
 		perror("write");
 		return EXIT_FAILURE;
 	}

@@ -18,6 +18,9 @@
 #include <unistd.h>
 #include <signal.h>
 
+/* external libraries */
+#include <boost/program_options.hpp>
+
 
 #include "netwrap.hpp"
 #include "read_buffer.hpp"
@@ -54,8 +57,15 @@ void open_log() {
 		logout.close();
 	}
 	string g_logpath = (const char*)cfg->lookup("verbatim.logpath");
+
+	/* create file if it doesn't exit */
+	string logfile(g_logpath + "verbatim.log");
+	int fd = open(logfile.c_str(), O_RDONLY|O_CREAT, 0777);
+	if (fd >= 0) {
+		close(fd);
+	}
 	/* never actually use as input, but reasons */
-	logout.open(g_logpath + "verbatim.log", ios::out | ios::in | ios::ate | ios::binary );
+	logout.open(logfile, ios::out | ios::in | ios::ate | ios::binary );
 	if (!logout.is_open()) {
 		cerr << "Could not open log\n";
 		abort();
@@ -63,22 +73,17 @@ void open_log() {
 }
 
 
-/* just redirect to stdout. redirect this to the file you actually want it to go to */
-
 int main(int argc, char *argv[]) {
-	if (argc == 2) {
-		load_config(argv[1]);
-	} else {
-		load_config("../netmine.cfg");
-	}
 
+	if (startup_setup(argc, argv) != 0) {
+		return EXIT_FAILURE;
+	}
 	const libconfig::Config *cfg(get_config());
 
 	string root((const char*)cfg->lookup("logger.root"));
 
 	mkdir(root.c_str(), 0777);
 	string client_dir(root + "clients/");
-
 
 	int client = unix_sock_client(client_dir + "all", false);
 

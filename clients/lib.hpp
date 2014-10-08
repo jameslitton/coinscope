@@ -49,7 +49,12 @@ uint32_t get_all_cxn_prefix(int sock) {
 	delete msg;
 
 	uint32_t len;
-	if (recv(sock, &len, sizeof(len), MSG_WAITALL) != sizeof(len)) {
+	ssize_t rv = recv(sock, &len, sizeof(len), MSG_WAITALL);
+	if (rv == 0) {
+		return 0;
+	}
+
+	if (rv != sizeof(len)) {
 		throw std::runtime_error(strerror(errno));
 	}
 	len = ntoh(len);
