@@ -277,15 +277,11 @@ void handler::suicide() {
 	io.stop();
 	close(io.fd);
 	io.fd = -1;
-				
-	g_active_handlers.erase(this);
-	g_inactive_handlers.insert(this);
-	//delete this; This was in the examples, but makes
-	//valgrind warn because it still gets referenced by libev
-	//before the handler loop completes (my guess is to just
-	//remove it from a list). Still, I move it and it gets
-	//collected next time someone connects. We'll see if that
-	//quiets valgrind.
+
+	if (g_active_handlers.find(this) != g_active_handlers.end()) {
+		g_active_handlers.erase(this);
+		g_inactive_handlers.insert(this);
+	}
 }
 
 void handler::do_write(ev::io &watcher, int /* revents */) {
