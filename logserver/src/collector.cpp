@@ -13,17 +13,18 @@ void collector::append(wrapped_buffer<uint8_t> &&data, size_t len, uint32_t sour
 	struct sized_buffer p(data, len, source_id);
 	if (max_size == 0) {
 		const libconfig::Config *cfg(get_config());
-		max_size = cfg->lookup("logger.max_buffer");
+		max_size = (uint32_t)cfg->lookup("logger.max_buffer");
 	}
 	set<output_cxn::handler *> morose;
 	for(auto it = queues.begin(); it != queues.end(); ++it) {
 		if (it->first->interested((data.const_ptr())[0])) {
-			it->second.total_size += len;
+			it->second.total_size += p.len;
 			it->second.queue.push_front(p);
 			int events = it->first->get_events();
 			it->first->set_events( events | ev::WRITE);
 
 			if (it->second.total_size > max_size) {
+				cerr << "Total size is " << it->second.total_size << endl;
 				morose.insert(it->first); /* do this out of band, because upon death they are removed from the queue, invalidating iterators */
 			}
 
@@ -31,6 +32,7 @@ void collector::append(wrapped_buffer<uint8_t> &&data, size_t len, uint32_t sour
 	}
 
 	for(auto it = morose.begin(); it != morose.end(); ++it) {
+		cerr << "Disconnecting handler due to size exceeded " << max_size << endl;
 		delete (*it);
 	}
 }
