@@ -24,6 +24,12 @@ struct sized_buffer {
 	}
 };
 
+struct sized_buffer_queue {
+	std::deque<struct sized_buffer> queue;
+	size_t total_size;
+	sized_buffer_queue() : queue(), total_size(0) {};
+};
+
 class collector {
 public:
 
@@ -37,8 +43,8 @@ public:
 	}
 private:
 	collector() : queues() {}
-	std::unordered_map<output_cxn::handler *, 
-	                   std::deque<struct sized_buffer> > queues;
+	std::unordered_map<output_cxn::handler *, sized_buffer_queue> queues;
+	                   
 };
 
 #endif

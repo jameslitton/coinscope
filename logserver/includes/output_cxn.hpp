@@ -3,8 +3,6 @@
 
 #include <cstdint>
 
-#include <set>
-
 #include <ev++.h>
 
 #include "accept_handler.hpp"
