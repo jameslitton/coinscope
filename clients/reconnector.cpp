@@ -47,7 +47,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	libconfig::Setting &local_cxn = list[0];
-	if (inet_aton((const char*)local_cxn[1], &g_local_addr) == 0) {
+	if (inet_aton("172.31.30.19", &g_local_addr) == 0) {
 		cerr << "bad aton on " << (const char *)local_cxn[1] << endl;
 		return EXIT_FAILURE;
 	}
@@ -66,14 +66,14 @@ int main(int argc, char *argv[]) {
 		                /* successful connect, we don't care */
 	                },
 	                [&](unique_ptr<struct bc_channel_msg> msg) {
-		                if (msg->update_type & (ORDERLY_DISCONNECT| WRITE_DISCONNECT)) {
+		                if (msg->update_type & (ORDERLY_DISCONNECT| WRITE_DISCONNECT | PEER_RESET)) {
 
 			                struct sockaddr_in remote_addr;
 			                if (msg->remote.sin_addr.s_addr == g_local_addr.s_addr) {
 				                /* they connected to us, so local is our remote */
-				                memcpy(&remote_addr, &msg->remote, sizeof(remote_addr));
-			                } else if (msg->local.sin_addr.s_addr == g_local_addr.s_addr) {
 				                memcpy(&remote_addr, &msg->local, sizeof(remote_addr));
+			                } else if (msg->local.sin_addr.s_addr == g_local_addr.s_addr) {
+				                memcpy(&remote_addr, &msg->remote, sizeof(remote_addr));
 			                } else {
 				                cout << msg->remote << " and " << msg->local << " matched no one\n";
 				                return;

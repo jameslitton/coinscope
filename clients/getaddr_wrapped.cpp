@@ -172,7 +172,7 @@ int main(int argc, char *argv[]) {
 	const char *config_file = cfg->lookup("version").getSourceFile();
 
 	string g_logpath = (const char*)cfg->lookup("verbatim.logpath") ;
-	string filename = g_logpath + "/" + "verbatim.log";
+	string filename = g_logpath + "/" + "verbatim.seed";
 
 	for(;;) {
 
