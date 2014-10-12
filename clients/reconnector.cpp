@@ -81,7 +81,8 @@ int main(int argc, char *argv[]) {
 
 	libconfig::Setting &local_cxn = list[0];
 	const char *local_arg = (const char *)local_cxn[1];
-	local_arg = "the correct value is the address of your NIC";
+	local_arg = "172.31.30.19";
+	local_arg = "Set to local interface";
 	if (inet_aton(local_arg, &g_local_addr) == 0) {
 		cerr << "bad aton on " << local_arg << endl;
 		return EXIT_FAILURE;
@@ -102,23 +103,31 @@ int main(int argc, char *argv[]) {
 		                } else if (msg->local.sin_addr.s_addr == g_local_addr.s_addr) {
 			                memcpy(&remote_addr, &msg->remote, sizeof(remote_addr));
 		                } else {
-			                cout << msg->remote << " and " << msg->local << " matched no one\n";
+			                cerr << msg->remote << " and " << msg->local << " matched no one\n";
 			                return;
 		                }
 		                g_fail_cnt[remote_addr] = -1; /* we are connected, not failed */
 
 	                },
 	                [&](unique_ptr<struct bc_channel_msg> msg) {
-		                if (msg->update_type & (ORDERLY_DISCONNECT| WRITE_DISCONNECT | PEER_RESET)) {
+		                bool do_connect = false;
+		                do_connect = msg->update_type & (CONNECT_FAILURE | ORDERLY_DISCONNECT| WRITE_DISCONNECT | PEER_RESET);
+		                if (!do_connect && msg->update_type & (UNEXPECTED_ERROR)) {
+			                do_connect = strcmp(msg->text, "Connection timed out") == 0;
+		                }
+		                if (do_connect) {
 
 			                struct sockaddr_in remote_addr;
-			                if (msg->remote.sin_addr.s_addr == g_local_addr.s_addr) {
+			                if (msg->local.sin_addr.s_addr == 0) {
+				                /* they don't have a local port, so it is us attempting to connect */
+				                memcpy(&remote_addr, &msg->remote, sizeof(remote_addr));
+			                } else if (msg->remote.sin_addr.s_addr == g_local_addr.s_addr) {
 				                /* they connected to us, so local is our remote */
 				                memcpy(&remote_addr, &msg->local, sizeof(remote_addr));
 			                } else if (msg->local.sin_addr.s_addr == g_local_addr.s_addr) {
 				                memcpy(&remote_addr, &msg->remote, sizeof(remote_addr));
 			                } else {
-				                cout << msg->remote << " and " << msg->local << " matched no one\n";
+				                cerr << msg->remote << " and " << msg->local << " matched no one\n";
 				                return;
 			                }
 
