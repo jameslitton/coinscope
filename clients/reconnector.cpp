@@ -128,7 +128,7 @@ int main(int argc, char *argv[]) {
 			                } else {
 				                size_t cnt = ++g_fail_cnt[remote_addr];
 				                /* let's just suppose are slots are 0, 5, 10, 15 ... */
-				                if (cnt > 30) {
+				                if (cnt > 12) {
 					                g_fail_cnt.erase(remote_addr); /* give up */
 				                } else {
 					                uniform_int_distribution<> dis(0, cnt);
