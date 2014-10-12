@@ -64,7 +64,7 @@ struct entry_cmp {
 };
 
 priority_queue<queue_entry, vector<queue_entry>, entry_cmp> g_pending_connects;
-struct unordered_map<sockaddr_in, size_t, sockaddr_hash, sockaddr_keyeq> g_fail_cnt;
+struct unordered_map<sockaddr_in, int, sockaddr_hash, sockaddr_keyeq> g_fail_cnt;
 
 int main(int argc, char *argv[]) {
 
@@ -94,8 +94,19 @@ int main(int argc, char *argv[]) {
 	string client_dir(root + "clients/");
 	int bitcoin_client = unix_sock_client(client_dir + "bitcoin", false);
 	bcwatch watcher(bitcoin_client, 
-	                [](unique_ptr<struct bc_channel_msg>) {
-		                /* successful connect, we don't care */
+	                [](unique_ptr<struct bc_channel_msg> msg) {
+		                struct sockaddr_in remote_addr;
+		                if (msg->remote.sin_addr.s_addr == g_local_addr.s_addr) {
+			                /* they connected to us, so local is our remote */
+			                memcpy(&remote_addr, &msg->local, sizeof(remote_addr));
+		                } else if (msg->local.sin_addr.s_addr == g_local_addr.s_addr) {
+			                memcpy(&remote_addr, &msg->remote, sizeof(remote_addr));
+		                } else {
+			                cout << msg->remote << " and " << msg->local << " matched no one\n";
+			                return;
+		                }
+		                g_fail_cnt[remote_addr] = -1; /* we are connected, not failed */
+
 	                },
 	                [&](unique_ptr<struct bc_channel_msg> msg) {
 		                if (msg->update_type & (ORDERLY_DISCONNECT| WRITE_DISCONNECT | PEER_RESET)) {
@@ -145,16 +156,16 @@ int main(int argc, char *argv[]) {
 	for(;;) {
 		time_t now = time(NULL);
 		while(g_pending_connects.size() && now - g_pending_connects.top().retry_time > 0) {
-
 			struct queue_entry qe(g_pending_connects.top());
 			g_pending_connects.pop();
-			cout << "Reconnecting " << qe.addr << endl;
-
-			connect_msg message(&qe.addr, &local_addr);
-
-			pair<wrapped_buffer<uint8_t>, size_t> p = message.serialize();
-
-			do_write(sock, p.first.ptr(), p.second);
+			if (g_fail_cnt[qe.addr] >= 0) {
+				cout << "Reconnecting " << qe.addr << endl;
+				connect_msg message(&qe.addr, &local_addr);
+				pair<wrapped_buffer<uint8_t>, size_t> p = message.serialize();
+				do_write(sock, p.first.ptr(), p.second);
+			} else {
+				/* This means we connected to them some time after putting them in the queue, so nothing to do */
+			}
 
 		}
 		watcher.loop_once();
