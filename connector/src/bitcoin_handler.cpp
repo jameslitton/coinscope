@@ -5,6 +5,7 @@
 #include <iostream>
 #include <sstream>
 #include <set>
+#include <random>
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -25,9 +26,25 @@ handler_set g_inactive_handlers;
 uint32_t handler::id_pool = 0;
 
 static int g_ping_iv = -1;
-
+static double g_active_ping_iv = -1;
 
 static set<connect_handler *> g_inactive_connection_handlers; /* to be deleted */
+
+
+static double get_randping() {
+	static mt19937 gen(time(NULL) + getpid());
+	static normal_distribution<double> *dist(nullptr);
+	if (dist == nullptr) {
+		const libconfig::Config *cfg(get_config());	
+		double mean = cfg->lookup("connector.bitcoin.active_ping.mean");
+		g_active_ping_iv = mean; /* it's just used really as a status flag */
+		double stddev = cfg->lookup("connector.bitcoin.active_ping.stddev");
+		dist = new normal_distribution<double>(mean, stddev);
+	}
+	double rv((*dist)(gen));
+	return rv;
+}
+
 
 connect_handler::connect_handler(int fd, const struct sockaddr_in &remote_addr) 
 	: remote_addr_(remote_addr), io() 
@@ -161,6 +178,7 @@ handler::handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_ad
 	  timestamp(ev::now(ev_default_loop())),
 	  state(a_state), 
 	  io(), timer(), last_activity(timestamp),
+	  active_ping_timer(),
 	  id(id_pool++) 
 {
 
@@ -189,11 +207,25 @@ handler::handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_ad
 		g_ping_iv = max(0, pf);
 	}
 
+	if (g_active_ping_iv < 0) {
+		const libconfig::Config *cfg(get_config());
+		double pm = cfg->lookup("connector.bitcoin.active_ping.mean");
+		g_active_ping_iv = max(0.0, pm);
+	}
+
 	if (g_ping_iv > 0) {
 		timer.set<handler, &handler::pinger_cb>(this);
 		timer.set(g_ping_iv);
 		timer.start();
 	}
+
+	if (g_active_ping_iv > 0) {
+		active_ping_timer.set<handler, &handler::active_pinger_cb>(this);
+		active_ping_timer.set(min(0.0, get_randping()));
+		active_ping_timer.start();
+	}
+
+
 	
 }
 
@@ -211,6 +243,15 @@ void handler::pinger_cb(ev::timer &/*w*/, int /*revents*/) {
 		timer.set(after);
 		timer.start();
 	}
+}
+
+void handler::active_pinger_cb(ev::timer &/*w*/, int /*revents*/) {
+	uint64_t nonce = nonce_gen64();
+	auto m(get_message("ping", (uint8_t*)&nonce, 8));
+	append_for_write(move(m));
+	active_ping_timer.stop();
+	active_ping_timer.set(max(5.0, get_randping()));
+	active_ping_timer.start();
 }
 
 
@@ -245,9 +286,10 @@ handler::~handler() {
 	if (io.fd >= 0) {
 		/* This shouldn't normally ever be destructed unless it is in the inactive_handler set, so this path shouldn't happen, but if so, don't leak */
 		io.stop();
-		close(io.fd);
 		timer.stop();
+		active_ping_timer.stop();
 		io.fd = -1;
+		close(io.fd);
 		g_active_handlers.erase(id);
 	}
 }

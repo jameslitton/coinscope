@@ -51,6 +51,7 @@ private:
 
 	ev::io io;
 	ev::timer timer; ev::tstamp last_activity;
+	ev::timer active_ping_timer;
 	uint32_t id;
 	static uint32_t id_pool;
 
@@ -61,6 +62,7 @@ public:
 	void handle_message_recv(const struct packed_message *msg);
 	void io_cb(ev::io &watcher, int revents);
 	void pinger_cb(ev::timer &w, int revents);
+	void active_pinger_cb(ev::timer &w, int revents);
 	struct sockaddr_in get_remote_addr() const { return remote_addr; }
 	struct sockaddr_in get_local_addr() const { return local_addr; }
 	/* appends message, leaves write queue unseeked, but increments to_write. */
