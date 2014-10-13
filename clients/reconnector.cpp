@@ -223,8 +223,9 @@ int main(int argc, char *argv[]) {
 				do_write(sock, p.first.ptr(), p.second);
 			}
 		} else if (g_pending_connects.size()) {
+			time_t diff = min((time_t)1,now - g_pending_connects.top().retry_time);
 			pending_lck.unlock();
-			sleep(now - g_pending_connects.top().retry_time);
+			sleep(diff);
 			pending_lck.lock();
 		} else {
 			g_pending_cv.wait(pending_lck, [&]{return g_pending_connects.size();});
