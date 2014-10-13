@@ -66,33 +66,8 @@ bool is_private(uint32_t ip) {
 		(0x0000F0FF & ip) == (172 | (16 << 8)); 
 }
 
-
-
-struct addr_cmp {
-	bool operator()(const struct sockaddr_in &lhs, const struct sockaddr_in &rhs) {
-		int t = lhs.sin_addr.s_addr - rhs.sin_addr.s_addr;
-		if (!t) {
-			t = lhs.sin_port - rhs.sin_port;
-		}
-		return t < 0;
-	}
-};
-
-struct sockaddr_hash {
-	size_t operator()(const struct sockaddr_in &a) const {
-		return hash<uint32_t>()(a.sin_addr.s_addr) + hash<uint16_t>()(a.sin_port);
-	}
-};
-
-struct sockaddr_keyeq {
-	bool operator()(const struct sockaddr_in &a, const struct sockaddr_in &b) const {
-		return a.sin_addr.s_addr == b.sin_addr.s_addr &&
-			a.sin_port == b.sin_port;
-	}
-};
-
 uint64_t g_time;
-set<sockaddr_in, addr_cmp> g_to_connect;
+set<sockaddr_in, sockaddr_cmp> g_to_connect;
 unordered_map<sockaddr_in, uint64_t, sockaddr_hash, sockaddr_keyeq> g_last_fail;
 
 inline void do_insert(const struct sockaddr_in &x) {
