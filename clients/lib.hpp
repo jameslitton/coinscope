@@ -11,6 +11,31 @@
 #include "network.hpp"
 #include "command_structures.hpp"
 
+
+
+struct sockaddr_cmp {
+	bool operator()(const struct sockaddr_in &lhs, const struct sockaddr_in &rhs) {
+		int t = lhs.sin_addr.s_addr - rhs.sin_addr.s_addr;
+		if (!t) {
+			t = lhs.sin_port - rhs.sin_port;
+		}
+		return t < 0;
+	}
+};
+
+struct sockaddr_hash {
+	size_t operator()(const struct sockaddr_in &a) const {
+		return std::hash<uint32_t>()(a.sin_addr.s_addr) + std::hash<uint16_t>()(a.sin_port);
+	}
+};
+
+struct sockaddr_keyeq {
+	bool operator()(const struct sockaddr_in &a, const struct sockaddr_in &b) const {
+		return a.sin_addr.s_addr == b.sin_addr.s_addr &&
+			a.sin_port == b.sin_port;
+	}
+};
+
 /* blocking writer, but EINTR can happen */
 inline void do_write(int fd, const void *ptr, size_t len) {
 	size_t so_far = 0;
