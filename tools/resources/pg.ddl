@@ -1,5 +1,10 @@
 BEGIN TRANSACTION;
 
+CREATE TABLE imported (
+   id serial PRIMARY KEY,
+   filename varchar NOT NULL UNIQUE
+);
+
 CREATE TABLE msg_types (
    id INTEGER PRIMARY KEY,
    type varchar(25) NOT NULL UNIQUE
@@ -17,19 +22,6 @@ CREATE TABLE messages (
 );
 
 CREATE INDEX message_tid ON messages(type_id);
-
--- map unique two-tuples to a one-tuple
-CREATE TABLE unique_hid ( 
-   hid bigserial PRIMARY KEY,
-   source_id INTEGER NOT NULL,
-   handle_id INTEGER NOT NULL,
-   UNIQUE(source_id, handle_id)
-);
-
-CREATE RULE unique_hid_ignore_dupes AS
-   ON INSERT TO unique_hid
-   WHERE 
-   (EXISTS (select 1 from unique_hid h where h.source_id = NEW.source_id and h.handle_id = NEW.handle_id)) DO INSTEAD NOTHING;
 
 
 CREATE TABLE text_strings (
@@ -72,7 +64,7 @@ INSERT INTO addr_families (id, family) VALUES
 (2, 'AF_INET');
 
 CREATE TABLE addresses (
-   id serial PRIMARY KEY,
+   id int8 PRIMARY KEY, -- first two bytes is family, second 4 address, last 2 is port. Doesn't matter as long as importer is consistent
    family INTEGER NOT NULL REFERENCES addr_families(id),
    address inet NOT NULL,
    port INTEGER NOT NULL,
@@ -89,10 +81,10 @@ CREATE RULE addresses_ignore_dupes AS
 CREATE TABLE bitcoin_cxn_messages (
    id bigserial PRIMARY KEY,
    message_id bigint NOT NULL UNIQUE REFERENCES messages(id),
+   handle_id INTEGER NOT NULL,
    cxn_type_id INTEGER NOT NULL REFERENCES bitcoin_cxn_types(id),
-   hid bigint NOT NULL REFERENCES unique_hid(hid),
-   remote_id INTEGER NOT NULL REFERENCES addresses(id),
-   local_id INTEGER NOT NULL REFERENCES addresses(id)
+   remote_id int8 NOT NULL REFERENCES addresses(id),
+   local_id int8 NOT NULL REFERENCES addresses(id)
 );
 
 CREATE INDEX bc_tid ON bitcoin_cxn_messages(cxn_type_id);
@@ -118,7 +110,7 @@ CREATE RULE commands_ignoredupes AS
 CREATE TABLE bitcoin_messages (
    id bigserial PRIMARY KEY,
    message_id INTEGER NOT NULL UNIQUE REFERENCES messages(id),
-   hid bigint NOT NULL REFERENCES unique_hid(hid),
+   handle_id INTEGER NOT NULL,
    is_sender BOOLEAN NOT NULL,
    command_id INTEGER NOT NULL REFERENCES commands(id)
 );
@@ -131,7 +123,7 @@ CREATE TABLE bitcoin_message_payloads (
 );
 
 CREATE VIEW bitcoin_message_v AS
-SELECT m.timestamp, bt.hid, bt.is_sender, c.command, p.payload
+SELECT m.source_id, m.timestamp, bt.handle_id, bt.is_sender, c.command, p.payload
 FROM messages m
 JOIN bitcoin_messages bt ON m.id = bt.message_id
 JOIN commands c ON c.id = bt.command_id
@@ -140,7 +132,7 @@ WHERE m.type_id = 32
 ;
 
 CREATE VIEW bitcoin_cxn_v AS
-SELECT m.timestamp, btc.hid, cxn_t.type, remote.address AS remote_address, 
+SELECT m.source_id, m.timestamp, btc.handle_id, cxn_t.type, remote.address AS remote_address, 
    remote.port AS remote_port, local.address AS local_address, local.port AS local_port,
    ts.txt AS text
 FROM messages m
@@ -154,7 +146,7 @@ WHERE m.type_id = 16;
 
 
 CREATE VIEW bitcoin_txt_v AS
-SELECT m.timestamp, t.type, ts.txt 
+SELECT m.source_id, m.timestamp, t.type, ts.txt 
 FROM messages m
 JOIN msg_types t ON t.id = m.type_id 
 JOIN text_messages tm ON tm.message_id = m.id
