@@ -1,0 +1,26 @@
+\section{DoS and Topology Altering Attacks}
+
+In this section, we present several novel attacks that build on the network mapping techniques.
+
+\begin{figure}
+\centering
+\label{fig:attack}
+\includegraphics[width=3.2in]{txdiagram_attack.pdf}
+\caption{Transactions used in the \ds{mapOrphans} DoS Attack}
+\end{figure}
+
+\subsection{\ds{mapOrphans} DoS Attack}
+
+First we create a large number of orphan transactions with invalid signatures. Then we get nodes to process them out of order. Ordinarily, a node would ban a peer that sends it transactions with invalid signatures. However by making these transactions pass through the \ds{mapOrphans} data structure, we avoid the blame.
+
+The net result is that the main thread of a node can be frozen for several minutes.
+
+\paragraph{Memory Consumption Attack.}
+
+While the victim's  message handler thread is busy processing invalid orphans, the socket handler thread is continuing to receive and buffer input from each of the victim's peers. If a receive buffer reaches a limit (5 megabytes) before the \ds{mapOrphans} DoS subsides, the corresponding peer is disconnected. By using up the maximum available connections (e.g., 125 minus 8), and filling up the receive buffers to the maximum, we can consume up to 500+ megabytes of RAM. This could crash a node that has a limited amount of memory.
+
+\paragraph{Countermeasures.}
+We reported this vulnerability to the Bitcoin core developer team, who released a patch as of version 0.9.3 that mitigates this attack by a) reducing the default size of the orphan transaction cache to 100, and b) associating each orphan transaction with a peer that transmitted it. If an orphan transaction is found to have an invalid signaure, the peer is disconnected and every orphan transaction sent from that peer is discarded without further validation.
+
+\subsection{Topology Altering Attacks}
+

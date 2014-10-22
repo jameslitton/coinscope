@@ -1,0 +1,34 @@
+\section{Experiments and Analysis}
+
+From the data we collected during our experiments, we are able to investigate several claims about the Bitcoin network.
+
+\subsection{Address Propagation in the Network}
+From the data collected during our AddrProbe experiment, we are able to infer not only which nodes are directly connected to each other, but also information about the lifetime of connections and their propagation through the network.
+
+\begin{figure*}
+\centering
+\includegraphics[width=7in]{ballplot.pdf}
+\caption{Plot of the connection events}
+\end{figure*}
+
+
+\subsection{Network Characterization and Community Formation}
+We conducted several TxProbe and AddrProbe tests over the whole network.
+We collected several snapshots of the network.
+\begin{figure*}
+\centering
+%\includegraphics[width=7in]{addrprobe-05-01.pdf}
+\caption{Snapshot of the network}
+\end{figure*}
+
+
+\subsection{Geographic Distribution of Nodes}
+Although it has been previously reported that a very large number of nodes come from China and other eastern countries, we found that this is not the case. Instead, there are a much smaller number of Chinese nodes that connect using several ``unique ip addresses'' each.
+
+\subsection{Connectedness of the Network}
+The network is fairly well connected. There are no obvious cuts or bottlenecks.
+
+\subsection{Formation of Communities}
+Nodes in the Bitcoin network tend to form highly connected communities. \anote{Still inconclusive about this, eh?}
+
+

@@ -1,0 +1,26 @@
+\section{Network Mapping Techniques}
+
+In this section we present several techniques for inferring the connections between nodes in the Bitcoin network.
+Although the network protocol does not by design make such topology information visible, by exploiting several aspects of the Bitcoin transaction propagation and peer-address propagation subsystems, we are able to gather information about the pairwise connectivity of the nodes in the network; that is, we are able to determine whether or not two nodes are peers, and thus reconstruct (much of) the connectivity graph of the network.
+
+\paragraph{Connecting to All Nodes.}
+All of our techniques involve establishing connections from our ``injection node'' to as many Bitcoin nodes as possible. This includes all of the nodes that are not behind a firewall, except for those that are already saturated with the maximum number of connections (100 by default).
+\anote{This technique is minor, probably doesn't deserve a paragraph}
+
+\input{txprobe}
+
+\input{addrprobe}
+
+\subsection{Marking Nodes with Persistent Fingerprints.}
+In general, we identify nodes by their IP addresses. However, in many cases, a node's IP address is reassigned. This is especially important for nodes in Asia \anote{citation yet?}, which tend to have higher rate of IP address reassignment (more in Section~\ref{?}). The following two techniques can be used to assign persistent ``fingerprints'' that identify a node across multiple IP addresses.
+
+\paragraph{Address Fingerprinting.}
+When a node receives an \msg{ADDR} message containing routable addresses, it immediately stores them in \ds{addrMan}. However, there are two conditions under which it will \emph{not} relay the addresses to peers: first, it will not relay them if the \msg{ADDR} message contained more than 11 addresses; second, it will not relay an address with a ``last-seen'' timestamp earlier than 10 \anote{double-check this} minutes past.
+The addresses entries essentially persistent -- if a node crashes or shuts down and then later restarts, the \ds{addrMan} will be reloaded from disk -- however, while the node is running, addresses are culled or updated randomly, with a half-life of every four hours. \anote{Can we estimate the rate at which we expect addresses to leak?} We can send \msg{Addr} packets with bogus addresses in order to create a persistent fingerprint, which allows us to determine when a node we've seen previously reconnects under a different IP address. 
+
+\paragraph{Orphan Block Fingerprinting.}
+Nodes will not relay orphan blocks. However, they keep them around. We could create orphan blocks ourselves, however the expected cost of mining is extremely high.
+There are a total of 70 orphan blocks since the last checkpoint, that are stored by \url{blockchain.info/orphaned-blocks}.
+We can probe nodes to learn which orphan blocks they have. Then we can assign unique code words consisting of subsets of these orphaned blocks.
+New nodes, especially, will not contain any orphan blocks.
+If desired, to clean up after ourselves, we could transmit all of the orphan blocks to every peer, washing away the fingerprint (and preventing those orphaned blocks from being used again).

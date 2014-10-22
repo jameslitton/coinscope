@@ -1,0 +1,106 @@
+\section{Background: How the Bitcoin Network Operates}
+In this section we provide an introduction to the essential operation of the Bitcoin network.
+
+\paragraph{Bitcoin in a Nutshell.}
+Bitcoin maintains a global ledger of financial transactions that move quantities of coins from one user to another. New transactions are added to this graph in batches called ``blocks''. The transaction history can be represented as a directed graph of transactions.  Transactions have inputs and outputs. Transaction outputs carry ``values''. In general each input of a transaction contains a reference to an output of a previous transaction. The only exception is the ``coinbase'' transaction, which effectively mints new coins and has no inputs. The balance rule says that the sum of the outputs must be less than the sum of inputs (the difference is given to miners as fees). In a valid transaction graph, an output can be spent by at most one transaction. Given a transaction graph, the outputs that do not occur as the input of any other transaction are called ``unspent outputs''. Tranasction outputs also carry a ``scriptPubKey'', which is a fragment of access control policy -- in the most common case contains the public key of the user who ``owns'' those coins. A transaction input must contain a ``scriptSig'' that satisfies the access control policy -- in the most common case, this contains a signature under the corresponding public key, but more complicated arrangements are possible. For more information on Bitcoin in general, see other papers. We will primarily be concerned with the peer-to-peer networking of Bitcoin introduced next, and described in detail later on.
+
+\paragraph{The Peer-to-Peer Layer.}
+Nodes in the network communicate by sending messages.
+We focus on explaining the \emph{message types}, such as \msg{addr} and \msg{block}, 
+as well as the key data structures used by each node, such as \ds{mapOprphans} and \ds{memPool}, since these are necessary to understand our probe techniques later in Section~\cite{sec:techniques}.
+
+Messages are denoted with smallcaps font, e.g., \msg{addr}. When the payload of a message is relevant, the payload will be described in brackets. So, $\msg{addr}[\{(addr_0,ts_0),(addr_1,ts_1)\}]$ is an address message containing two items.
+
+
+\paragraph{Other Clients besides Satoshi.} While we focus on the behavior of the Bitcoin reference client (called Satoshi), which accounts for the vast majority of the network \anote{(x\%)}, below we describe the differences between Satoshi and several of the other most common clients:
+\begin{itemize}
+\item (BitcoinJ)
+\item (btcd) 
+\item \anote{others?}
+\end{itemize}
+
+\anote{Refer to the frequency table of different nodes}
+
+\subsection{Peer Discovery and Network Formation}
+
+\paragraph{Bootstrapping.}
+Nodes that join the Bitcoin network need to establish connections to other nodes. Ideally, the network should have generally low degree (since this prevents nodes from having to allocate too many resources), yet low diameter and mixing time (so that data propagates quickly and is robust to network partitions and node failures).
+
+The key data structure used by Bitcoin nodes is the address manager, \ds{addrMan}. This is a persistent data structure (i.e., saved to disk in a \textsf{peers.dat} file) that contains of a list of possible peers (IP address and port) to connect to, along with metadata about when they were last seen. 
+
+When a new node joins the network, the \ds{addrMan} is initially empty.
+To discover peers, a new node first queries several ``Seed-0'' nodes, the DNS addresses of which are hardcoded into the reference client.
+\footnote{The actual query is done by resolving using the DNS protocol.\anote{elaborate to be precise, but these details really don't matter. Add detail about the particular behavior of the four nodes?}}
+The Seed-0 nodes are operated by trusted members of the Bitcoin community, and publicly commit to a particular protocol. \anote{jgarzik/xf2 only returns 15 static addresses, the others run seeder code available online and mimic the behavior of reference client}.
+The seed nodes respond with a list of peers, which are added to \ds{addrMan}. We call a node ``Seed-1'' if it is returned by any of the ``Seed-0'' nodes.
+
+There are approximately 500 Seed-1 nodes - a random sample of 100 of these are sent in response to the initial DNS query.\anote{this is definitely wrong, we have better info now, there are many more Seed-1 nodes}.
+Seed-1 nodes are selected by the Seed-0 nodes, based on the length of time in the network, and the reliability during that time, both in terms of ``misbehaving'' score and uptime.
+
+\paragraph{Address Propagation.}
+Besides the initial process, information about available peers is propagated through the network, through two main mechanisms: \emph{trickling} and \emph{response to \msg{GETADDR} messages}.
+
+The behavior followed by the Bitcoin reference client for handling peer addresses are described in pseudocode in Algorithm~\ref{alg:addr_pcode}.
+
+The following messages are involved in address propagation:
+\begin{itemize}
+\item \msg{ADDR} messages contain vectors of address information, including IPv4 address, services offered, and time of last successful connection.  
+When a node receives an incoming connection, it randomly selects one of its peers, and sends an \msg{ADDR} message with information about the node that just connected. 
+The node receiving the \msg{ADDR} message will update its information about the node described in the message, including updating the time of last successful connection.
+\item \msg{GETADDR} messages are also sent periodically to request \msg{ADDR} messages from other nodes.
+Nodes respond to \msg{GETADDR} messages with a random sample of 1000 addresses from their \ds{addrMan} database.
+Addresses are eventually removed from \ds{addrMan} if they have not been connected to for some time.
+\end{itemize}
+
+\paragraph{Connection Maintenance.}
+The reference client attempts to maintain eight outgoing connections at all times, by selecting addresses from \ds{addrMan} when more connections are needed. Additionally, the reference client (by default) maintains a maximum of 100 connections in total (incoming and outgoing), and will ignore peers that attempt to make an incoming connection in excess of this capacity.
+
+When a node restarts, it first attempts to reestablish connections to the peers it was previously connected to.
+
+Although the reference client attempts to establish NAT traversal\anote{terminology?} using UPNP, many nodes behind a firewall (especially mobile devices on cell networks) are unable to receive incoming connections.
+
+\subsection{Relaying Blocks and Transactions}
+
+Transactions contain inputs and outputs. A transaction \emph{spends} a set of \emph{transaction inputs} and \emph{creates} a set of \emph{transaction outputs}.
+\emph{Conflicting transactions} are a pair of distinct transactions that spend a common transaction input.
+A \emph{valid} transaction is one that has valid signatures for each of the transaction inputs.
+
+Transactions are created whenever a user attempts to send a quantity of Bitcoins to another user; the transactions are propagated so that they can be processed and included by miners. When a miner ``finds a block'' by computing a winning puzzle solution, the block is propagated so that every other miner can begin building on it. The Bitcoin network attempts to flood information about every transaction and every block to every node. 
+
+The reference client propagates data essentially by flooding. Whenever a node learns about a new data item (either a \msg{block} or a \msg{tx}), it sends the \emph{hash} of that item to every peer it's connected to, except for peers that already thought to have that item. In order to further reduce unnecessary traffic, nodes follow a three-round protocol, the first two rounds of which only involve transmitting of the \emph{hash} of transactions or blocks rather than the entire item. This process is described in more detail below; first, though, we describe the key data structures used by the reference client to keep track of the data received:
+
+\begin{itemize}
+\item \ds{memPool}: a set of \emph{valid} and non-conflicting transactions. If the entire contents of \ds{memPool} were included in a block, the block would be valid (ignoring size restrictions).
+\item \ds{mapBlockIndex}: a semi-lattice (rooted at the ``genesis'' block) containing all known valid blocks. The longest chain\anote{technically, the one with the most work} in the semi-lattice is called the ``best'' blockchain.
+\item \ds{pcoinsTip}: the set of transactions contained in the ``best'' blockchain.
+\item \ds{mapOrphans}\footnote{in the source code, what we call \ds{mapOrphans} is actually \ds{mapOrphanTransactions} but we use the abbreviation for readability} and \ds{mapOrphanBlocks}: a set of ``orphan'' transactions or blocks that cannot yet be validated, because they depend on other transactions or blocks that are not currently stored
+\item \ds{inventoryKnown}: for each peer, a set of inventory items that this peer is believed to already have.
+\item \ds{mapAlreadyAskedFor}: a multiset containing, for each hash of a data item, a queue of peers from which to request the item
+\end{itemize}
+
+The item propagation process described in detail below:
+\begin{itemize}
+
+\item \msg{TX}$[\tx]$ and \msg{BLOCK}$[\block]$: A transaction or block message contains the entire raw data for a block or a transaction (note that a block itself contains a set of transactions, these are transmitted in entirety).
+%when a node receives a GETDATA request for a transaction (tx), the node will respond with a TX message containing the corresponding transaction data.
+%When a node receives a transaction matching h(tx), it will remove any queued GETDATA requests from mapAskedFor and attempt to validate the transaction.
+When a node receives a transaction or block item that it does not already have, it attempts to validate it. If the item depends on another item that is not currently known (or has not been validated), then the item is placed in the \ds{mapOrphans} or \ds{mapOrphanBlocks} list.
+If the transaction is valid with respect to transactions in the best chain in \ds{mapBlockIndex} and transactions in \ds{memPool}, then it is inserted into mempool; if the transaction is invalid or conflicts with a transaction in the blockchain or in mempool, then it is immediately discarded.
+Note that \ds{mapOrphans} has a size limit; if a transaction is added to \ds{mapOrphans} and capacity is exceeded, then a transaction is randomly evicted from \ds{mapOrphans}.
+\footnote{The eviction procedure is as follows: select a random value $r$ in the range $[0,2^256)$. Evict the orphan with the smallest hash $h$ such that $h \ge r$. This process is repeated until the orphan cache is low enough. This means that orphan transactions with low hash values are less likely to be evicted.}
+
+Note also that \ds{memPool} does not have such a size limit; however, for the transaction to be included in \ds{memPool}, it must include a minimum transaction fee of 0.0001\btc~ \anote{unnecessary? also, NEVER free transactions in mempool?}, so a resource exhaustion attack that fills up \ds{memPool} would be expensive.
+A block that is valid with respect to any of the block in \ds{mapBlockIndex} is immediately added to \ds{mapBlockIndex}; if this results in a new ``best'' blockchain (i.e., a ``reorg''), then \ds{pcoinsTip} and \ds{memPool} are recomputed.
+When a transaction is placed in mempool (resp., a block is placed in \ds{mapBlockIndex}), then any dependent transactions in \ds{mapOrphans} (resp. blocks in \ds{mapBlockOrphans}) are processed recursively, and the node broadcasts the corresponding \msg{INV} message to all of its peers.
+
+\item \msg{INV}$[\h(\tx)]$ or \msg{INV}$[\h(\block)]$: an \msg{INV} message consists of the hash of a transaction or block. A peer that has just created or received a valid transaction transmits an \msg{INV} message containing just the hash of the item $\h(\tx)$ or $\h(\block)$. One \msg{INV} message can contain up to five hundred transaction or block hashes. When a node receives an \msg{INV} message from a peer, the node will request the corresponding item by sending a \msg{GETDATA} message containing the $\h(\tx)$ or $\h(\block)$, \textbf{unless} one of the following holds:
+
+\begin{itemize}
+\item The item is a transaction that already exists in \ds{pcoinsTip}, \ds{memPool}, or \ds{mapOrphans}
+\item The item is a block that already exists in \ds{mapBlockIndex}
+\item A \msg{GETDATA} request has already been issued for the item from some peer within the last two minutes; in this case, a new request is queued in \ds{mapAlreadyAskedFor}, two minutes apart.
+\end{itemize}
+
+\item \msg{GETDATA}$[\h(\tx)]$ or \msg{GETDATA}$[\h(\block)]$: When a node receives a request for \block, it responds with \break \msg{BLOCK}$[\block]$ if the block is in \ds{mapBlockIndex}. \anote{Slightly more complicated than this, it ignores requests for blocks that are a) orphans, and b) earlier than a checkpoint.} When a node receives a request for \tx, it responds with \msg{TX}$[\tx]$ if the transaction is in \ds{memPool}.\anote{Or in mapRelay, but this detail isn't important.}
+
+\end{itemize}

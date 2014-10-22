@@ -1,0 +1,126 @@
+\subsection{The TxProbe Technique}
+
+\subsubsection{Preliminaries}
+
+Here we identify some of the basic principles we exploit in this process:
+
+\paragraph{Boosting.}
+If \tx is in \ds{memPool}, and \tx' only spends inputs from \tx, then the node will have low priority and will need to spend a significant fee. However, priority is calculated based on the sum of inputs. Thus we can increase the priority of \tx' by having it spend a ``booster'' input that comes from a separate transaction. \anote{illustration of this too?}
+\anote{This technique is minor, probably doesn't deserve a paragraph}
+
+
+\paragraph{Inv-Blocking.}
+ After a node responds to an \msg{INV} message with \msg{GETDATA}, the node will wait two minutes before timing out and asking another peer for the transaction - regardless of how many peers have sent \msg{INV} messages with the same transaction hash. We can therefore "block" a node from hearing about a transaction for up to two minutes, simply by sending an \msg{INV} message and then ignoring the \msg{GETDATA} request; if we connect to a node from more than one origin, we can block that node for multiples of two minutes by filling up slots in the \ds{mapAlreadyAskedFor} queue.
+
+\paragraph{Coloring the \ds{memPool}.}
+The \ds{memPool} data structure will contain at most one out of a set of mutually conflicting transactions.
+If a node receives a transaction that conflicts with a transaction already in its \ds{memPool}, then the node simply discards the transaction. On the other hand, if a transaction does not conflict with a transaction in \ds{memPool}, then the transaction is added to \ds{memPool} and the corresponding \msg{INV} is relayed to its peers. By creating a set of conflicting transactions -- one transaction per node -- and sending each transaction to the corresponding node, we can configure each node's \ds{memPool} with different behavior. In this case, we say that we have \emph{colored} each \ds{memPool} differently. Consider a ``child'' transaction that spends an output of one the conflicting transactions - this transaction will be relayed by one of the nodes (the one with the ``parent'' in its \ds{memPool}) and stored in \ds{mapOrphans} by all of the other nodes (the ``child'' is an orphan since the ``parent'' is discarded). As another example, consider a ``bad child'' -- an invalid transaction that attempts to spend an output of one of the conflicting transactions. The node that has the ``parent'' in its \ds{memPool} will discard this transaction since it's invalid, while every other node will postpone validation (since the parent is unavailable) and store it in \ds{mapOrphans}. 
+\anote{Include an illustration for these examples? Maybe we should just skip this elaboration and go straight to the main algorithm.}
+Also note that only one of the transactions will be spent -- we only have to pay one transaction fee. Once a block is found, every node erases the committed transaction from its \ds{memPool}. While we could, in principle, color each \ds{memPool} by sending a \tx to each node simultaneously, due to varying latency it is hard to win the race consistently; using the inv-blocking technique above, we can eliminate the need to rely on near-perfect latency.
+
+\paragraph{Reading a Node's \ds{mapOrphans} and \ds{memPool}.}
+If a node is already storing a transaction \tx in \ds{memPool} or \ds{mapOrphans}, then it will discard any \msg{INV}$[\tx]$ messages. On the other hand, the node will respond with \msg{GETDATA}$[\tx]$ if \tx is not stored -- even if \tx has previously been received, but discarded because of a conflict in \ds{memPool}. If a node receives a \msg{GETDATA}$[\tx]$ from our injection node, then it will respond with \msg{TX}$[\tx]$ only if \tx is stored in its \ds{memPool}. Thus we can determine if a transaction is present in any nodes \ds{mapOrphans}, \ds{memPool}, or neither.
+
+\paragraph{Fast Transmission.}
+Although the reference client perform a three round process to transfer transactions (i.e., \msg{INV} followed by \msg{GETDATA} followed by \msg{TX}),
+a node will immediately process a \msg{TX} message even if it is unsolicited.
+This allows us to `outrun' the normal pace of transaction propagation by 
+sending \msg{TX} messages directly.\anote{Is this mentioned in Decker et al., - transaction propagation in the Bitcoin network?}
+
+\paragraph{Flushing \ds{mapOrphans}.}
+A node's $\ds{mapOrphans}$ cache has a limit of 10K transactions\footnote{down to 100 by default as of 0.9.3}. If a new orphan transaction is added causing $\ds{mapOrphans}$ to exceed this size, a transaction is evicted at random. Since our mapping techniques involve causing nodes to insert our transactions into $\ds{mapOrphans}$, it can interfere if $\ds{mapOrphans}$ is already full. We can use the following procedure to flush the orphan cache and \emph{make room} for our own orphan transactions. First, we create a parent transaction $t$, and a number of child transactions $\{t'_i\}_{i=1}^n$ each of which a) contain one input that depends on $t$ and b) contain one input that has already been spent (e.g., an input spent by $t$). Then, we transmit the $n$ orphans $t'_i$ to the target node, followed by the parent $t$. Some fraction of the $n$ orphans may be evicted as other orphans are added. Once the parent $t$ is accepted, each of the children will be discarded since an input it depends on has already been spent.
+
+\anote{Need a formula here for how to choose $n$ so that we clear some minimum number of spaces with high probability.}
+
+\anote{Due to how orphans are evicted, we can bias the node against evicting our orphans by creating orphans with low hash values.}
+
+\subsubsection{Procedure 1: One-Pass TxProbe}
+Suppose for now that we are able to connect our injection node to all $N$ other nodes on the network (in other words, ignoring firewalled nodes and saturated nodes). The following algorithm combines the basic techniques discussed above in order to reconstruct the entire connectivity graph in a single pass.
+
+\paragraph{Pre-Processing.}
+We begin with a source transaction, $\tx_\emptyset$, containing two outputs, $\tx_\emptyset[0]$ and $\tx_\emptyset[1]$, each worth $X\btc$. \anote{clarify $X$?}
+Next we prepare all of the transactions necessary for the entire procedure:
+\begin{itemize}
+\item The ``parent'' transactions, $\{\tx_i\}_{i \in 1..N}$: a set of $n$ mutually conflicting transactions, each of which spends the input $\tx_\emptyset[0]$ and contains a single output $\tx_i[0]$ containing $(X-fee)\btc$.
+\item The ``child'' (or ``marker'') transactions, $\{\tx'_i\}_{i \in 1..N}$: a set of $n$ transactions, each of which spends the output of the corresponding parent, $\tx_i[0]$, and the booster output $\tx_\emptyset[1]$, and creates one transaction output with value $2*(X-fee)\btc$ back to a recovery address that we control.
+\end{itemize}
+
+\paragraph{Procedure.} Once all transactions are prepared, the test proceeds as follows:
+\begin{enumerate}
+\item \emph{Inv-Blocking:} First, we send \msg{INV}$[\h(\tx_1),...,\h(\tx_N)]$ to every node. Each node responds by sending \msg{GETDATA}$[\h(\tx_1),...,\h(\tx_N)]$ to our injection node, and begins a two-minute period during which no other node will be asked for any of the ``parent'' transactions.
+\item \emph{Coloring:} Next, once the previous step is completed, we send \msg{TX}$[\tx_i]$ to node $i$ for each $i \in 1..N$. Each node is now colored with a unique parent transaction in its \ds{memPool}.
+\item \emph{Marker Injection:} Next, we send \msg{TX}$[\tx'_i]$ to node $i$, for $i \in 1..N$. Since node $i$ has the parent $\tx_i$, it will relay $\tx'_i$ to its peers. However, since none of its peers have $\tx_i$, they store $\tx'_i$ in their \ds{mapOrphans} but do not relay it further.
+\item \emph{Readback:} Finally, we send \msg{INV}$[\h(\tx'_1),...,\h(\tx'_N)]$ to every node. Each node $j$ responds with \msg{GETDATA}$[S_j]$, where $S_j \subseteq \{\h(\tx'_i)\}_{i\in 1..N}$ indicates which child transactions have \emph{note} been relayed by one of its peers. If $\h(\tx'_i) \notin S_j$, then we conclude that nodes $i$ and $j$ are directly connected.
+\end{enumerate}
+
+\subsubsection{Procedure 2: Robust TxProbe}
+
+Although the One-Pass Connectivity Test is elegant and efficient, it relies on the assumption that we can connect to every network node, which doesn't hold in practice. Next we discuss what goes wrong when this assumption is violated, and an improved procedure that is more robust.
+
+\paragraph{Handling Unreachable Nodes and Escaped Transactions.}
+We are unable to connect to nodes that are either firewalled or fully saturated with existing connections -- together, we call such nodes ``unreachable''.
+
+The success of our technique relies on the marker transaction $\tx'_i$ being relayed \emph{only} by node $i$. We accomplish by coloring each node $j$ with a transaction $\tx_j$ that conflicts with the parent $\tx_i$ of marker $\tx'_i$. However, suppose that nodes $i$ and $j$ are not directly connected to each other, but are indirectly connected by a dark node. The dark node will receive one of $\tx_i$ or $\tx_j$ -- it is a race condition which -- and, in the former case, will relay $\tx'_i$ to node $j$. We say that $\tx_i$ has \emph{escaped}, causing us to report a false positive connection between nodes $i$ and $j$. This scenario is illustrated in Figure~\ref{darknodes}.
+
+\paragraph{Target Set Partitioning.}
+To improve the robustness of our procedure, we must sacrifice the one-pass nature of our first procedure. Our approach instead is to define a \emph{target set}, $T \subseteq 1..N$ (and let the complement $\overline{T}$ denote every other node outside the target set). We color every node in the target set with a target transaction $\tx_i$, for $i \in T$, but every other node -- including most dark nodes -- with a conflicting transaction $\tx_{\overline{T}}$. This prevents any of the target transactions from escaping via dark nodes. The caveat is that this technique does not block dark nodes that are connected \emph{only} to nodes in $T$. Therefore, in one pass, we learn precisely the connections between each node in $T$ and any of the nodes in $\overline{T}$. The entire graph can be reconstructed from multiple phases with different target sets, as we explain later. Below we explain the procedure in more detail.
+
+\paragraph{Pre-Processing.}
+We begin with a source transaction $\tx_\emptyset$ the same as before. The transactions we require are:
+\begin{enumerate}
+\item Parent transactions $\{\tx_{i}\}_{i \in T}$: unique conflicting transactions for every member of the target set, spending $\tx_\emptyset[0]$ and producing output $\tx_i[0]$.
+\item Blocker transaction $\tx_{\overline{T}}$, which conflicts with each $\tx_{i}$.
+\item Child (or marker) transactions $\{\tx'_i\}_{i \in T}$: each of which spends $\tx_i[0]$ and booster $\tx_\emptyset[1]$, and sends the remainder to our recovery address.
+\end{enumerate}
+
+\paragraph{Procedure}
+\begin{enumerate}
+\item \emph{Inv-Blocking:} First, we send \msg{INV}$[\{\h(\tx_i)\}_{i \in T} \cup \{\h(\tx_{\overline{T}})\}]$ to every node.
+\item \emph{Unreachable Node Blocking:} Next, we send \msg{TX}$[\tx_{\overline{T}}]$ to every node in $\overline{T}$. Transaction $\tx_{\overline{T}}$ now propagates to every dark node that is connected (even indirectly, except via nodes in $T$) to $\overline{T}$.
+\item \emph{Coloring:} After giving $\tx_{\overline{T}}$ sufficient time (say, 30 seconds) to propagate, we send \msg{TX}$[\tx_i]$ to node $i$ for each $i \in T$. Dark nodes that are connected \emph{only} to members of $T$ will be colored with some $\tx_i$, but they do not affect the remainder of the experiment.
+\item \emph{Marker Injection:} Next, we send \msg{TX}$[\tx'_i]$ to node $i$, for $i \in T$. Node $i$ will relay $\tx'_i$ to its peers in $\overline{T}$, but $\tx'_i$ does not propagate further.
+\item \emph{Readback:} Finally, we send \msg{INV}$[\h(\{\tx'_i)\}_{i \in T}]$ to every node in $\overline{T}$. Each node $j$ responds with \msg{GETDATA}$[S_j]$, where $S_j \subseteq \{\h(\tx'_i)\}_{i\in T}$ indicates which child transactions have \emph{note} been relayed by one of its peers. If $\h(\tx'_i) \notin S_j$, then we conclude that nodes $i$ and $j$ are directly connected.
+\end{enumerate}
+
+\begin{figure}
+\label{fig:preparedtransactions}
+\centering
+\includegraphics[width=3.2in]{txdiagram_txprobe.pdf}
+\caption{Transactions used in (Robust) TxProbe}
+\end{figure}
+
+
+\begin{figure}
+\centering
+\includegraphics[scale=0.45]{dark_node_problem.pdf}
+\caption{Test set $T$, other nodes $\overline{T}$, and dark nodes.}
+\label{fig:darknodes}
+\end{figure}
+
+\paragraph{Optimizing the Number of Passes.}
+As mentioned, our second test only determines the bipartite connections between nodes in $T$ and in $\overline{T}$. To recover the entire graph, we must perform multiple passes so that each node $i$ is included in at least two target sets $T_a$ and $T_b$ that are otherwise disjoint, meaning $T_a \cap T_b = \{i\}$. An optimal configuration consists of $2*\sqrt{N}$ target sets containing $\sqrt{N}$ nodes each, arranged as rows and columns of a square (see Figure~\ref{fig:square}).
+
+After connecting to all of the nodes in N, a single run of the experiment takes about 45 seconds to run, mostly due to the time we allow the ``blocking'' transaction to propagate.
+To save time overall, we can run multiple passes concurrently.
+
+That is, each time a node occurs in Ts, none of the other nodes in the sets can be the same between the two trials.  \anote{elaborate? I don't understand the safety requirement}
+
+\anote{Empirically, how many false positives are there? We could run fewer tests and still probably get a good measure. We should be able to estimate the number of false positives from a complete run.}
+
+\begin{figure}
+\centering
+\includegraphics[scale=0.5]{disjoint_subsets.pdf}
+\caption{Optimal configuration of size-$\sqrt{N}$ target sets for a complete in $2\sqrt{N}$ passes. Each node must be included in two target sets that are otherwise-disjoint.}
+\label{fig:square}
+\end{figure}
+
+\anote{It's possible to perform every pass in parallel}
+
+\anote{Coping with version 0.9.3, which reduces orphan size from 10k to 100.}
+
+\subsection{Inferring Mining Influence}
+
+We can use similar techniques to TxProbe to estimate the mining power of a node (or, more specifically, the influence of the node on mining power).
+
+In a nutshell, the idea is to send a conflicting transaction to every reachable node. By observing which transaction gets placed in a block, we can estimate which nodes are connected to centers of mining power. This technique can be used to infer the location of mining pools.
+
