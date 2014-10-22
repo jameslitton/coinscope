@@ -140,7 +140,8 @@ sub get_addr_key {
 	my $family = int(shift);
 	my $address = int(shift); # 32 bit number
 	my $port = int(shift);
-	return (($family & 0xff) << 24) | (($address & 0xffff) << 16) | ($port & 0xff);
+	my $id = (($family & 0xffff) << 48) | (($address & 0xffffffff) << 16) | ($port & 0xffff);
+	return $id;
 }
 
 sub pass0_bitcoin_handler {
