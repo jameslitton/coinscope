@@ -11,19 +11,56 @@ use Data::Dumper;
 use Set::Scalar;
 use Memoize;
 use DateTime;
+use POSIX ":sys_wait_h";
+use IPC::SysV qw/SEM_UNDO S_IRUSR S_IWUSR IPC_CREAT ftok/;
+use IPC::Semaphore;
+
+
 
 # This reads a verbatim file and writes it to a database.
 
 my $g_dbh;
-my $g_postfix = '';
+my $g_suffix = '';
+my %g_pids;
+
+
+
+my $id = ftok($0, 0);
+die unless $id;
+print "Id is $id\n";
+my $g_sem = IPC::Semaphore->new($id, 1, S_IRUSR | S_IWUSR);
+unless ($g_sem) {
+	$g_sem = IPC::Semaphore->new($id, 1, S_IRUSR | S_IWUSR | IPC_CREAT);
+	$g_sem->setval(0, 1);
+}
+
+sub lock {
+	$g_sem->op(0, -1, SEM_UNDO);
+}
+
+sub unlock {
+	$g_sem->op(0, 1, SEM_UNDO);
+}
+
 
 my @g_pass_data; # any global data needed for passes, which can be zeroed out as you move along
 
-foreach (qw/messages bitcoin_cxn_messages cxn_text_map bitcoin_messages bitcoin_message_payloads text_messages/) {
-	open(my $fp, '+>', "$_.$$.copy") or die "Could not open file: $!\n";
-	$g_pass_data[2]{$_} = $fp;
+sub is_interactive {
+	return -t STDIN && -t STDOUT;
 }
 
+BEGIN {
+	open(my $dev_null, '>>', "/dev/null") or die "Could not open dev/null: $!\n";
+	sub my_out {				 # return a file descriptor to print out to
+		return *STDOUT if is_interactive;
+		return $dev_null;
+	}
+
+	sub my_err {				 # return a file descriptor to print out to
+		return *STDERR if is_interactive;
+		return $dev_null;
+	}
+}
 
 sub inet_ntoa {
 	return sprintf("%d.%d.%d.%d", $_[0] & 0xff, ($_[0] >> 8) & 0xff, ($_[0] >> 16) & 0xff, ($_[0] >> 24) & 0xff);
@@ -58,7 +95,7 @@ sub prepopulate_text_id {
 
 sub get_text_id {
 	my $text = shift;
-	$text =~ s/\x00*$//; # Log file includes terminating null...
+	$text =~ s/\x00*$//;			 # Log file includes terminating null...
 	unless (defined $g_text_id{$text}) {
 
 		my $text_sth = $g_dbh->prepare_cached(q{
@@ -138,7 +175,7 @@ sub fetch_all_addr_id {
 
 sub get_addr_key {
 	my $family = int(shift);
-	my $address = int(shift); # 32 bit number
+	my $address = int(shift);	  # 32 bit number
 	my $port = int(shift);
 	my $id = (($family & 0xffff) << 48) | (($address & 0xffffffff) << 16) | ($port & 0xffff);
 	return $id;
@@ -266,34 +303,40 @@ sub handle_message {
 	my ($source_id, $type, $timestamp, $rest) = unpack("NCQ>a*", $_[0]);
 	my $handlers = $_[1];
 	if (!defined $handlers->{$type}) {
-		print STDERR "Unhandled type : type\n";
+		print { my_err() } "Unhandled type : type\n";
 	} else {
 		$handlers->{$type}->($source_id, $type, $timestamp, $rest);
 	}
 }
 
-sub get_handle {	  # init db (if necessary and return a database
-						  # handle). Try to not be a total knob and use db
-						  # specific things in using it, because it probably
-						  # won't always be sqlite
+BEGIN {
+	my $dbh = 0;
+	sub get_handle { # init db (if necessary and return a database
+		# handle). Try to not be a total knob and use db
+		# specific things in using it, because it probably
+		# won't always be sqlite
 
+		unless ($dbh) {
+			$dbh = DBI->connect("dbi:Pg:dbname=connector", "litton", "",
+			                       { RaiseError => 1,
+			                         AutoCommit => 0})
+			  or die $DBI::errstr;
+		}
 
-	my $dbh = DBI->connect("dbi:Pg:dbname=connector", "litton", "",
-	                       { RaiseError => 1,
-	                         AutoCommit => 0})
-	  or die $DBI::errstr;
-
-	return $dbh;
+		return $dbh;
+	}
 }
-;
 
 sub do_pass {
 	(my $IN, my $pass, my $handler) = @_;
 	binmode($IN) || die "Cannot binmode IN";
 
 	my $filesize = (stat($IN))[7];
-	my $progress = Term::ProgressBar->new({count => $filesize, ETA => 'linear', name => $pass});
-	$progress->max_update_rate(1);
+	my $progress = 0;
+	if (is_interactive) {
+		$progress = Term::ProgressBar->new({count => $filesize, ETA => 'linear', name => $pass});
+		$progress->max_update_rate(1);
+	}
 	my $next_update = 0;
 
 	my $reading_len = 1;
@@ -310,7 +353,7 @@ sub do_pass {
 		} elsif ($rv == 0) {
 			last;
 		} elsif (! defined $rv) {
-			print STDERR "Received error on read: $!\n";
+			print { my_err() } "Received error on read: $!\n";
 			last;
 		}
 
@@ -322,7 +365,7 @@ sub do_pass {
 				handle_message($cur, $handler);
 				$reading_len = 1;
 				$to_read = 4;
-				if ($total_read > $next_update) {
+				if ($progress && $total_read > $next_update) {
 					$next_update = $progress->update($total_read);
 					#$g_dbh->commit;
 				}
@@ -331,7 +374,7 @@ sub do_pass {
 			$cur = "";
 		}
 	}
-	$progress->update($total_read);
+	$progress->update($total_read) if $progress;
 }
 
 
@@ -368,148 +411,201 @@ my %pass2_handlers = (
                       8 => \&pass2_as_text,
                       16 => \&pass2_bitcoin_handler,
                       32 => \&pass2_bitcoin_msg_handler,
-                      );
+                     );
 
 
-die "Please supply a filename" if ($#ARGV == -1);
-my $filename = $ARGV[0];
-open(my $IN, '<', $filename) or die "Could not open file";
-$g_dbh = get_handle();
-
-$g_dbh->do("LOCK TABLE addresses IN SHARE MODE");
-$g_pass_data[0]{address_set} = fetch_all_addr_id();
-$g_pass_data[0]{address_copy} = [];
-do_pass($IN, "Counting and address pass", \%pass0_handlers);
 
 
-$g_dbh->do("COPY addresses FROM STDIN");
-foreach my $a (@{ $g_pass_data[0]{address_copy} }) {
-	$g_dbh->pg_putcopydata($a);
-}
-$g_dbh->pg_putcopyend();
-$g_dbh->commit; #release lock
+
+sub child_main {
 
 
-$g_pass_data[1]{rows} = $g_pass_data[0]{rows};
-$g_pass_data[1]{text_messages} = $g_pass_data[0]{text_messages};
-$g_pass_data[0] = {};
+	my $filename = $_[0];
 
 
-$g_dbh->do("LOCK TABLE text_strings IN SHARE MODE");
-$g_pass_data[1]{text_next} = jump_sequence('text_strings_id_seq', $g_pass_data[1]{text_messages}+1);
+	open(my $IN, '<', $filename) or die "Could not open file";
 
-prepopulate_text_id;
-seek($IN, 0, SEEK_SET);
-$g_pass_data[1]{text_copy} = [];
-do_pass($IN, "text string pass", \%pass1_handlers);
-$g_dbh->do("COPY text_strings FROM STDIN");
-foreach my $a (@{ $g_pass_data[1]{text_copy} }) {
-	$g_dbh->pg_putcopydata($a);
-}
-$g_dbh->pg_putcopyend();
-$g_dbh->commit; #release lock
-
-$g_pass_data[2]{rows} = $g_pass_data[1]{rows};
-$g_pass_data[2]{cid_rows} = $g_pass_data[1]{cid_rows};
-$g_pass_data[2]{bid_rows} = $g_pass_data[1]{bid_rows};
-$g_pass_data[1] = {};
-
-$g_dbh->do("LOCK TABLE messages IN SHARE MODE");
-$g_pass_data[2]{next_mid} = jump_sequence('messages_id_seq', $g_pass_data[2]{rows});
-$g_dbh->commit;
-
-$g_dbh->do("LOCK TABLE bitcoin_cxn_messages IN SHARE MODE");
-$g_pass_data[2]{next_cid} = jump_sequence('bitcoin_cxn_messages_id_seq', $g_pass_data[2]{cid_rows});
-$g_dbh->commit;
-
-$g_dbh->do("LOCK TABLE bitcoin_messages IN SHARE MODE");
-$g_pass_data[2]{next_bid} = jump_sequence('bitcoin_messages_id_seq', $g_pass_data[2]{bid_rows});
-$g_dbh->commit;
-
-
-seek($IN, 0, SEEK_SET);
-do_pass($IN, "Main pass", \%pass2_handlers);
-
-{
-	my $stmt = $g_dbh->prepare('insert into imported (filename) values (?)');
-	$stmt->execute($filename);
-	$g_postfix = '' . $g_dbh->last_insert_id(undef, undef, undef, undef, {sequence=>'imported_id_seq'});
-	my @statements = (
-	                  "CREATE TABLE messages${g_postfix} () INHERITS (messages)",
-	                  "CREATE TABLE text_messages${g_postfix} () INHERITS (text_messages)",
-	                  "CREATE TABLE cxn_text_map${g_postfix} () INHERITS (cxn_text_map)",
-	                  "CREATE TABLE bitcoin_cxn_messages${g_postfix} () INHERITS (bitcoin_cxn_messages)",
-	                  "CREATE TABLE bitcoin_messages${g_postfix} () INHERITS (bitcoin_messages)",
-	                  "CREATE TABLE bitcoin_message_payloads${g_postfix} () INHERITS (bitcoin_message_payloads)",
-	                 );
-	foreach my $s (@statements) {
-		$g_dbh->do($s);
+	foreach (qw/messages bitcoin_cxn_messages cxn_text_map bitcoin_messages bitcoin_message_payloads text_messages/) {
+		open(my $fp, '+>', "$_.$$.copy") or die "Could not open file: $!\n";
+		$g_pass_data[2]{$_} = $fp;
 	}
-}
 
 
+	$g_dbh = get_handle();
 
-foreach my $t (qw/messages bitcoin_cxn_messages bitcoin_messages text_messages cxn_text_map bitcoin_message_payloads/) {
-	$g_dbh->do("COPY ${t}${g_postfix} FROM STDIN");
-	seek($g_pass_data[2]{$t}, 0, SEEK_SET);
-	my $fh = $g_pass_data[2]{$t};
-	while (<$fh>) {
-		$g_dbh->pg_putcopydata($_);
+	lock();
+	$g_dbh->do("LOCK TABLE addresses IN SHARE MODE");
+	$g_pass_data[0]{address_set} = fetch_all_addr_id();
+	$g_pass_data[0]{address_copy} = [];
+	$g_pass_data[0]{text_messages} = 0;
+	do_pass($IN, "Counting and address pass", \%pass0_handlers);
+
+	$g_dbh->do("COPY addresses FROM STDIN");
+	foreach my $a (@{ $g_pass_data[0]{address_copy} }) {
+		$g_dbh->pg_putcopydata($a);
 	}
 	$g_dbh->pg_putcopyend();
-	close($g_pass_data[2]{$t});
-}
+	$g_dbh->commit;				  #release lock
+	unlock();
 
-{
-	my @statements =
-	  (
-	   "ALTER TABLE bitcoin_cxn_messages${g_postfix} ADD CONSTRAINT bitcoin_cxn_messages${g_postfix}_pkey PRIMARY KEY (id)",
-	   "ALTER TABLE messages${g_postfix} ADD CONSTRAINT messages${g_postfix}_pkey PRIMARY KEY (id)",
-	   "ALTER TABLE cxn_text_map${g_postfix} ADD CONSTRAINT cxn_text_map${g_postfix}_pkey PRIMARY KEY (bitcoin_cxn_msg_id, txt_id)",
-	   "ALTER TABLE bitcoin_messages${g_postfix} ADD CONSTRAINT bitcoin_messages${g_postfix}_pkey PRIMARY KEY(id)",
-	   "ALTER TABLE messages${g_postfix} ADD CONSTRAINT messages${g_postfix}_type_id_fkey FOREIGN KEY (type_id) REFERENCES msg_types(id)",
 
-	   "CREATE INDEX message_tid${g_postfix} ON messages${g_postfix}(type_id)",
-	   "ALTER TABLE text_messages${g_postfix} ADD CONSTRAINT text_messages${g_postfix}_message_id_fkey FOREIGN KEY (message_id) REFERENCES messages${g_postfix}(id)",
-	   "ALTER TABLE text_messages${g_postfix} ADD CONSTRAINT text_messages${g_postfix}_text_id_fkey FOREIGN KEY (text_id) REFERENCES text_strings(id)",
-	   "ALTER TABLE text_messages${g_postfix} ADD CONSTRAINT text_messages${g_postfix}_message_id_key UNIQUE (message_id)",
+	$g_pass_data[1]{rows} = $g_pass_data[0]{rows};
+	$g_pass_data[1]{text_messages} = $g_pass_data[0]{text_messages};
+	$g_pass_data[0] = {};
 
-	   "ALTER TABLE cxn_text_map${g_postfix} ADD CONSTRAINT cxn_text_map${g_postfix}_msg_id_key UNIQUE (bitcoin_cxn_msg_id)",
-	   "ALTER TABLE cxn_text_map${g_postfix} ADD CONSTRAINT cxn_text_map${g_postfix}_msg_id_fkey FOREIGN KEY (bitcoin_cxn_msg_id) REFERENCES bitcoin_cxn_messages${g_postfix}(id)",
-	   "ALTER TABLE cxn_text_map${g_postfix} ADD CONSTRAINT cxn_text_map${g_postfix}_txt_id_fkey FOREIGN KEY (txt_id) REFERENCES text_strings(id)",
 
-	   "ALTER TABLE bitcoin_cxn_messages${g_postfix} ADD CONSTRAINT bitcoin_cxn_messages${g_postfix}_message_id_key UNIQUE (message_id)",
-	   "CREATE INDEX bc_tid${g_postfix} ON bitcoin_cxn_messages${g_postfix}(cxn_type_id)",
-	   "ALTER TABLE bitcoin_cxn_messages${g_postfix} ADD CONSTRAINT bitcoin_cxn_messages${g_postfix}_cxn_type_id_fkey FOREIGN KEY (cxn_type_id) REFERENCES bitcoin_cxn_types(id)",
-	   "ALTER TABLE bitcoin_cxn_messages${g_postfix} ADD CONSTRAINT bitcoin_cxn_messages${g_postfix}_local_id_fkey FOREIGN KEY (local_id) REFERENCES addresses(id)",
-	   "ALTER TABLE bitcoin_cxn_messages${g_postfix} ADD CONSTRAINT bitcoin_cxn_messages${g_postfix}_message_id_fkey FOREIGN KEY (message_id) REFERENCES messages${g_postfix}(id)",
-	   "ALTER TABLE bitcoin_cxn_messages${g_postfix} ADD CONSTRAINT bitcoin_cxn_messages${g_postfix}_remote_id_fkey FOREIGN KEY (remote_id) REFERENCES addresses(id)",
+	lock();
+	$g_dbh->do("LOCK TABLE text_strings IN SHARE MODE");
+	$g_pass_data[1]{text_next} = jump_sequence('text_strings_id_seq', $g_pass_data[1]{text_messages}+1);
 
-	   "ALTER TABLE bitcoin_messages${g_postfix} ADD CONSTRAINT bitcoin_messages${g_postfix}_message_id_key UNIQUE (message_id)",
-	   "CREATE INDEX bm_command${g_postfix} ON bitcoin_messages${g_postfix}(command_id)",
-	   "ALTER TABLE bitcoin_messages${g_postfix} ADD CONSTRAINT bitcoin_messages${g_postfix}_command_id_fkey FOREIGN KEY (command_id) REFERENCES commands(id)",
-	   "ALTER TABLE bitcoin_messages${g_postfix} ADD CONSTRAINT bitcoin_messages${g_postfix}_message_id_fkey FOREIGN KEY (message_id) REFERENCES messages${g_postfix}(id)",
-	   "ALTER TABLE bitcoin_message_payloads${g_postfix} ADD CONSTRAINT bitcoin_message_payloads${g_postfix}_bitcoin_msg_id_key UNIQUE (bitcoin_msg_id)",
-	   "ALTER TABLE bitcoin_message_payloads${g_postfix} ADD CONSTRAINT bitcoin_message_payloads${g_postfix}_bitcoin_msg_id_fkey FOREIGN KEY (bitcoin_msg_id) REFERENCES bitcoin_messages${g_postfix}(id)",
-	   "CREATE INDEX timestamp_idx${g_postfix} ON messages${g_postfix}(timestamp)",
-	  );
-
-	foreach my $s (@statements) {
-		print STDERR ".";
-		$g_dbh->do($s);
+	prepopulate_text_id;
+	seek($IN, 0, SEEK_SET);
+	$g_pass_data[1]{text_copy} = [];
+	do_pass($IN, "text string pass", \%pass1_handlers);
+	$g_dbh->do("COPY text_strings FROM STDIN");
+	foreach my $a (@{ $g_pass_data[1]{text_copy} }) {
+		$g_dbh->pg_putcopydata($a);
 	}
-	print "\n";
+	$g_dbh->pg_putcopyend();
+	$g_dbh->commit;				  #release lock
+	unlock();
+
+	$g_pass_data[2]{rows} = $g_pass_data[1]{rows};
+	$g_pass_data[2]{cid_rows} = $g_pass_data[1]{cid_rows};
+	$g_pass_data[2]{bid_rows} = $g_pass_data[1]{bid_rows};
+	$g_pass_data[1] = {};
+
+	lock();
+	$g_dbh->do("LOCK TABLE messages IN SHARE MODE");
+	$g_pass_data[2]{next_mid} = jump_sequence('messages_id_seq', $g_pass_data[2]{rows});
 	$g_dbh->commit;
-	# get min and max and set a constraint. when they don't overlap this will partition the tables. When they do....fix that?
-	my $stmt = $g_dbh->prepare("select min(timestamp), max(timestamp) from messages${g_postfix}");
-	$stmt->execute;
-	my $aref = $stmt->fetch;
-	$stmt->finish;
-	$stmt = $g_dbh->prepare("alter table messages${g_postfix} add constraint timechk${g_postfix} CHECK (timestamp >= ? and timestamp <= ?)");
-	$stmt->execute($aref->[0], $aref->[1]);
+	unlock();
+
+	lock();
+	$g_dbh->do("LOCK TABLE bitcoin_cxn_messages IN SHARE MODE");
+	$g_pass_data[2]{next_cid} = jump_sequence('bitcoin_cxn_messages_id_seq', $g_pass_data[2]{cid_rows});
+	$g_dbh->commit;
+	unlock();
+
+	lock();
+	$g_dbh->do("LOCK TABLE bitcoin_messages IN SHARE MODE");
+	$g_pass_data[2]{next_bid} = jump_sequence('bitcoin_messages_id_seq', $g_pass_data[2]{bid_rows});
+	$g_dbh->commit;
+	unlock();
+
+
+	seek($IN, 0, SEEK_SET);
+	do_pass($IN, "Main pass", \%pass2_handlers);
+
+	{
+		my $stmt = $g_dbh->prepare('insert into imported (filename) values (?)');
+		$stmt->execute($filename);
+		$g_suffix = '' . $g_dbh->last_insert_id(undef, undef, undef, undef, {sequence=>'imported_id_seq'});
+		my @statements = (
+		                  "CREATE TABLE messages${g_suffix} () INHERITS (messages)",
+		                  "CREATE TABLE text_messages${g_suffix} () INHERITS (text_messages)",
+		                  "CREATE TABLE cxn_text_map${g_suffix} () INHERITS (cxn_text_map)",
+		                  "CREATE TABLE bitcoin_cxn_messages${g_suffix} () INHERITS (bitcoin_cxn_messages)",
+		                  "CREATE TABLE bitcoin_messages${g_suffix} () INHERITS (bitcoin_messages)",
+		                  "CREATE TABLE bitcoin_message_payloads${g_suffix} () INHERITS (bitcoin_message_payloads)",
+		                 );
+		foreach my $s (@statements) {
+			$g_dbh->do($s);
+		}
+	}
+
+
+	foreach my $t (qw/messages bitcoin_cxn_messages bitcoin_messages text_messages cxn_text_map bitcoin_message_payloads/) {
+		$g_dbh->do("COPY ${t}${g_suffix} FROM STDIN");
+		seek($g_pass_data[2]{$t}, 0, SEEK_SET);
+		my $fh = $g_pass_data[2]{$t};
+		while (<$fh>) {
+			$g_dbh->pg_putcopydata($_);
+		}
+		$g_dbh->pg_putcopyend();
+		close($g_pass_data[2]{$t});
+	}
+
+	{
+		my @statements =
+		  (
+		   "ALTER TABLE bitcoin_cxn_messages${g_suffix} ADD CONSTRAINT bitcoin_cxn_messages${g_suffix}_pkey PRIMARY KEY (id)",
+		   "ALTER TABLE messages${g_suffix} ADD CONSTRAINT messages${g_suffix}_pkey PRIMARY KEY (id)",
+		   "ALTER TABLE cxn_text_map${g_suffix} ADD CONSTRAINT cxn_text_map${g_suffix}_pkey PRIMARY KEY (bitcoin_cxn_msg_id, txt_id)",
+		   "ALTER TABLE bitcoin_messages${g_suffix} ADD CONSTRAINT bitcoin_messages${g_suffix}_pkey PRIMARY KEY(id)",
+		   "ALTER TABLE messages${g_suffix} ADD CONSTRAINT messages${g_suffix}_type_id_fkey FOREIGN KEY (type_id) REFERENCES msg_types(id)",
+
+		   "CREATE INDEX message_tid${g_suffix} ON messages${g_suffix}(type_id)",
+		   "ALTER TABLE text_messages${g_suffix} ADD CONSTRAINT text_messages${g_suffix}_message_id_fkey FOREIGN KEY (message_id) REFERENCES messages${g_suffix}(id)",
+		   "ALTER TABLE text_messages${g_suffix} ADD CONSTRAINT text_messages${g_suffix}_text_id_fkey FOREIGN KEY (text_id) REFERENCES text_strings(id)",
+		   "ALTER TABLE text_messages${g_suffix} ADD CONSTRAINT text_messages${g_suffix}_message_id_key UNIQUE (message_id)",
+
+		   "ALTER TABLE cxn_text_map${g_suffix} ADD CONSTRAINT cxn_text_map${g_suffix}_msg_id_key UNIQUE (bitcoin_cxn_msg_id)",
+		   "ALTER TABLE cxn_text_map${g_suffix} ADD CONSTRAINT cxn_text_map${g_suffix}_msg_id_fkey FOREIGN KEY (bitcoin_cxn_msg_id) REFERENCES bitcoin_cxn_messages${g_suffix}(id)",
+		   "ALTER TABLE cxn_text_map${g_suffix} ADD CONSTRAINT cxn_text_map${g_suffix}_txt_id_fkey FOREIGN KEY (txt_id) REFERENCES text_strings(id)",
+
+		   "ALTER TABLE bitcoin_cxn_messages${g_suffix} ADD CONSTRAINT bitcoin_cxn_messages${g_suffix}_message_id_key UNIQUE (message_id)",
+		   "CREATE INDEX bc_tid${g_suffix} ON bitcoin_cxn_messages${g_suffix}(cxn_type_id)",
+		   "ALTER TABLE bitcoin_cxn_messages${g_suffix} ADD CONSTRAINT bitcoin_cxn_messages${g_suffix}_cxn_type_id_fkey FOREIGN KEY (cxn_type_id) REFERENCES bitcoin_cxn_types(id)",
+		   "ALTER TABLE bitcoin_cxn_messages${g_suffix} ADD CONSTRAINT bitcoin_cxn_messages${g_suffix}_local_id_fkey FOREIGN KEY (local_id) REFERENCES addresses(id)",
+		   "ALTER TABLE bitcoin_cxn_messages${g_suffix} ADD CONSTRAINT bitcoin_cxn_messages${g_suffix}_message_id_fkey FOREIGN KEY (message_id) REFERENCES messages${g_suffix}(id)",
+		   "ALTER TABLE bitcoin_cxn_messages${g_suffix} ADD CONSTRAINT bitcoin_cxn_messages${g_suffix}_remote_id_fkey FOREIGN KEY (remote_id) REFERENCES addresses(id)",
+
+		   "ALTER TABLE bitcoin_messages${g_suffix} ADD CONSTRAINT bitcoin_messages${g_suffix}_message_id_key UNIQUE (message_id)",
+		   "CREATE INDEX bm_command${g_suffix} ON bitcoin_messages${g_suffix}(command_id)",
+		   "ALTER TABLE bitcoin_messages${g_suffix} ADD CONSTRAINT bitcoin_messages${g_suffix}_command_id_fkey FOREIGN KEY (command_id) REFERENCES commands(id)",
+		   "ALTER TABLE bitcoin_messages${g_suffix} ADD CONSTRAINT bitcoin_messages${g_suffix}_message_id_fkey FOREIGN KEY (message_id) REFERENCES messages${g_suffix}(id)",
+		   "ALTER TABLE bitcoin_message_payloads${g_suffix} ADD CONSTRAINT bitcoin_message_payloads${g_suffix}_bitcoin_msg_id_key UNIQUE (bitcoin_msg_id)",
+		   "ALTER TABLE bitcoin_message_payloads${g_suffix} ADD CONSTRAINT bitcoin_message_payloads${g_suffix}_bitcoin_msg_id_fkey FOREIGN KEY (bitcoin_msg_id) REFERENCES bitcoin_messages${g_suffix}(id)",
+		   "CREATE INDEX timestamp_idx${g_suffix} ON messages${g_suffix}(timestamp)",
+		  );
+
+		foreach my $s (@statements) {
+			print { my_err() } ".";
+			$g_dbh->do($s);
+		}
+		print { my_err() } "\n";
+		$g_dbh->commit;
+		# get min and max and set a constraint. when they don't overlap this will partition the tables. When they do....fix that?
+		my $stmt = $g_dbh->prepare("select min(timestamp), max(timestamp) from messages${g_suffix}");
+		$stmt->execute;
+		my $aref = $stmt->fetch;
+		$stmt->finish;
+		$stmt = $g_dbh->prepare("alter table messages${g_suffix} add constraint timechk${g_suffix} CHECK (timestamp >= ? and timestamp <= ?)");
+		$stmt->execute($aref->[0], $aref->[1]);
+	}
+
+	close($IN);
+	$g_dbh->commit;
+	foreach (qw/messages bitcoin_cxn_messages cxn_text_map bitcoin_messages bitcoin_message_payloads text_messages/) {
+		close($g_pass_data[2]{$_});
+		unlink("$_.$$.copy");
+	}
 }
 
+foreach my $filename (@ARGV) {
+	my $pid = fork();
+	if ($pid > 0) {
+		print { my_out() } "Made child $pid\n";
+		$g_pids{$pid} = $filename;
+	} elsif ($pid == 0) {
+		child_main($filename);
+		exit(0);
+	} else {
+		die "Bad pid $pid: $!\n";
+	}
+}
 
-close($IN);
+while(scalar(keys %g_pids)) {
+	my $cpid = wait;
+	if ($cpid > 0) {
+		delete $g_pids{$cpid};
+		if ($? != 0) {
+			print STDERR "Wait gave non-zero status for $cpid: $?\n";
+		}
+	} elsif ($cpid == -1) {
+		print STDERR "No children to wait on\n";
+	}
+}
 
-$g_dbh->commit;
+$g_sem->remove();
