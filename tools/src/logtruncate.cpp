@@ -126,18 +126,21 @@ int main(int argc, char *argv[]) {
 				cerr << "Unexpected lseek error: " << strerror(errno) << endl;
 			}
 		}
-
+		if (sought > actual) {
+		  break;
+		}
 		size += 4 + ntoh(netlen); /* length plus bytes */
 		assert(sought == size);
 	}
 
-	cout << "Got " << size << " bytes. File is " << actual << " bytes\n";
-	cout << "Uncomment truncate line if you like this. It scares me a bit\n";
 
-	//truncate(fd, size);
 	close(fd);
 
-
+	if (size < actual) {
+	  if (truncate(filename.c_str(), size) < 0) {
+	    cerr << "Could not truncate: " << strerror(errno) << endl;
+	  };
+	}
 }
 
 
