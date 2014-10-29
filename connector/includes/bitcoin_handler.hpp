@@ -80,6 +80,7 @@ private:
 	handler & operator=(handler &&other);
 
 
+	void start_pingers();
 	void do_read(ev::io &watcher, int revents);
 	void do_write(ev::io &watcher, int revents);
 };

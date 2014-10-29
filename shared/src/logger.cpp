@@ -12,8 +12,12 @@ using namespace std;
 
 log_buffer *g_log_buffer;
 
+const static size_t store_size(4096);
+
 size_t g_log_cursor(0);
-wrapped_buffer<uint8_t> g_log_store(4096);
+wrapped_buffer<uint8_t> g_log_store(store_size);
+
+
 
 
 
@@ -76,7 +80,7 @@ template <> void g_log<BITCOIN>(uint32_t update_type, uint32_t handle_id, const 
 			append_buf(g_log_store, g_log_cursor);
 		}
 		g_log_cursor = 0;
-		g_log_store = wrapped_buffer<uint8_t>(max((size_t)4096, len+4));
+		g_log_store = wrapped_buffer<uint8_t>(max((size_t)store_size, len+4));
 	}
 
 	uint8_t *base_ptr = g_log_store.ptr() + g_log_cursor;
@@ -137,7 +141,7 @@ template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bi
 			append_buf(g_log_store, g_log_cursor);
 		}
 		g_log_cursor = 0;
-		g_log_store = wrapped_buffer<uint8_t>(max((size_t)4096, len+4));
+		g_log_store = wrapped_buffer<uint8_t>(max((size_t)store_size, len+4));
 	}
 
 	uint8_t *base_ptr = g_log_store.ptr() + g_log_cursor;

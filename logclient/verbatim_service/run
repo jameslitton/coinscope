@@ -1,0 +1,4 @@
+#!/bin/sh
+
+/home/litton/pending/tools/logtruncate --logfile /home/litton/verbatim.log
+exec setuidgid litton /home/litton/pending/logclient/verbatim --configfile /home/litton/netmine/netmine.cfg
