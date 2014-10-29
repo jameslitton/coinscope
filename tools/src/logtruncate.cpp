@@ -25,7 +25,6 @@
 #include "command_structures.hpp"
 #include "bitcoin.hpp"
 #include "logger.hpp"
-#include "../../clients/lib.hpp"
 
 using namespace std;
 

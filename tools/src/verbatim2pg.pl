@@ -12,9 +12,9 @@ use Set::Scalar;
 use Memoize;
 use DateTime;
 use POSIX ":sys_wait_h";
-use IPC::SysV qw/SEM_UNDO S_IRUSR S_IWUSR IPC_CREAT ftok/;
+use IPC::SysV qw/SEM_UNDO S_IRUSR S_IWUSR IPC_CREAT IPC_EXCL ftok/;
 use IPC::Semaphore;
-
+use Sys::CPU;
 
 
 # This reads a verbatim file and writes it to a database.
@@ -27,20 +27,32 @@ my %g_pids;
 
 my $id = ftok($0, 0);
 die unless $id;
-print "Id is $id\n";
-my $g_sem = IPC::Semaphore->new($id, 1, S_IRUSR | S_IWUSR);
-unless ($g_sem) {
-	$g_sem = IPC::Semaphore->new($id, 1, S_IRUSR | S_IWUSR | IPC_CREAT);
+my $g_sem = IPC::Semaphore->new($id, 5, S_IRUSR | S_IWUSR | IPC_CREAT | IPC_EXCL);
+if ($g_sem) {
+	my $cpus = Sys::CPU::cpu_count();
+	if ($cpus > 1) {
+		$cpus--; # Leave one core free 
+	}
 	$g_sem->setval(0, 1);
+	$g_sem->setval(1, 1);
+	$g_sem->setval(2, 1);
+	$g_sem->setval(3, 1);
+	$g_sem->setval(4, $cpus);
+} else {
+	print "Failed to create semaphore: $!\n";
+	print "Need to clean up, perhaps\n";
+	exit(1);
 }
 
 sub lock {
-	$g_sem->op(0, -1, SEM_UNDO);
+	$g_sem->op($_[0], -1, 0);
 }
 
+
 sub unlock {
-	$g_sem->op(0, 1, SEM_UNDO);
+	$g_sem->op($_[0], 1, 0);
 }
+
 
 
 my @g_pass_data; # any global data needed for passes, which can be zeroed out as you move along
@@ -83,7 +95,7 @@ sub pass2_prolog {
 
 my %g_text_id;
 sub prepopulate_text_id {
-	my $sth = $g_dbh->prepare(q{select id, txt from text_strings});
+	my $sth = $g_dbh->prepare(q{select id, txt from text_strings where id in (select distinct txt_id from cxn_text_map)});
 	$sth->execute;
 	my $count = 0;
 	while (my $aref = $sth->fetchrow_arrayref) {
@@ -137,6 +149,8 @@ sub pass0_as_text {
 sub pass1_get_text_id {
 	my $original_text = shift;
 	$original_text =~ s/\x00*$//; # Log file includes terminating null...
+	my $id = get_text_id($original_text);
+	return $id;
 	unless (defined $g_text_id{$original_text}) {
 		my $id = $g_pass_data[1]{text_next}++;
 		my $text = copy_escape($original_text);
@@ -256,7 +270,6 @@ select id from commands where command = ?});
 
 	my $rv = $getcmd_sth->fetch()->[0];
 	$getcmd_sth->finish;
-	return $rv;
 }
 
 memoize('get_command_id');
@@ -268,6 +281,10 @@ sub pass0_bitcoin_msg_handler {
 	    $magic, $command, $length,
 	    $checksum, $payload) = unpack("NCVZ[12]VVa*", $rest);
 	my $command_id = get_command_id($command);
+	if ($command eq 'getaddr') {
+		my $bucket = $timestamp - ($timestamp % 120);
+		$g_pass_data[0]{getaddr}{$bucket}++;
+	}
 	$g_pass_data[0]{rows}++;
 }
 
@@ -303,7 +320,7 @@ sub handle_message {
 	my ($source_id, $type, $timestamp, $rest) = unpack("NCQ>a*", $_[0]);
 	my $handlers = $_[1];
 	if (!defined $handlers->{$type}) {
-		print { my_err() } "Unhandled type : type\n";
+		print { my_err() } "Unhandled type : $type\n";
 	} else {
 		$handlers->{$type}->($source_id, $type, $timestamp, $rest);
 	}
@@ -331,12 +348,14 @@ sub do_pass {
 	(my $IN, my $pass, my $handler) = @_;
 	binmode($IN) || die "Cannot binmode IN";
 
-	my $filesize = (stat($IN))[7];
 	my $progress = 0;
+	my $filesize = (stat($IN))[7];
+
 	if (is_interactive) {
 		$progress = Term::ProgressBar->new({count => $filesize, ETA => 'linear', name => $pass});
 		$progress->max_update_rate(1);
 	}
+
 	my $next_update = 0;
 
 	my $reading_len = 1;
@@ -379,51 +398,147 @@ sub do_pass {
 
 
 sub jump_sequence {
+	my ($seq, $offset) = @_;
 	my $stmt = $g_dbh->prepare("select nextval(?)");
-	$stmt->execute($_[0]);
+	$stmt->execute($seq);
 	my $aref = $stmt->fetch;
 	my $next_id = $aref->[0];
+	if ($offset == 0) {
+		return $next_id;
+	}
 	$stmt = $g_dbh->prepare("select setval(?, ?)");
-	$stmt->execute($_[0], $next_id + $_[1]);
+	$stmt->execute($seq, $next_id + $offset);
 	return $next_id;
 }
 
+sub process_buckets {
+	my @buckets = sort { $a <=> $b } keys %{$g_pass_data[0]{getaddr}};
+	return if ($#buckets == -1);
+	
+	my @v = sort { $a <=> $b } values %{$g_pass_data[0]{getaddr}};
+	my $median;
+	if (($#v + 1) % 2 == 0) {
+		$median = $v[($#v + 1) / 2];
+	} else {
+		$median = ($v[$#v / 2] + $v[($#v / 2) + 1]) / 2;
+	}
+	
+	@v = ();
+	my $sum_absdev = 0;
+	foreach my $b (@buckets) {
+		push(@v, abs($g_pass_data[0]{getaddr}{$b} - $median));
+		$sum_absdev += abs($g_pass_data[0]{getaddr}{$b} - $median);
+	}
+	
+	@v = sort { $a <=> $b } @v;
+	my $med_absdev;
+	if (($#v + 1) % 2 == 0) {
+		$med_absdev = $v[($#v + 1) / 2];
+	} else {
+		$med_absdev = ($v[$#v / 2] + $v[($#v / 2) + 1]) / 2;
+	}
+	
+	my $avg_absdev = $sum_absdev / ($#buckets+1);
+	
+	# we collect statistics here to do several measures, but twice the average seems to be a good way to detect the start
+	my @getaddrs;
+	foreach my $b (@buckets) {
+		if ($g_pass_data[0]{getaddr}{$b} - $median > 2*$avg_absdev) {
+			my $newaddr = 1;
+			if ($#getaddrs >= 0) {
+				if ($b - $getaddrs[ $#getaddrs ]{last} < 6*60) { # detected a getaddr within six minutes ( 3 buckets )
+					$getaddrs[ $#getaddrs]{last} = $b;
+					$newaddr = 0;
+				}
+			}
+			if ($newaddr) {
+				push(@getaddrs, {first => $b, last => $b});
+			}
+		}
+	}
+	my $stmt = $g_dbh->prepare('insert into experiments (experiment, start_time) values (?, ?)');
+	foreach(@getaddrs) {
+		$stmt->execute('getaddr', iso8601($_->{first}));
+	}
+}
+
+
 
 my %pass0_handlers = (
-                      2 => \&pass0_as_text,
-                      4 => \&pass0_as_text,
-                      8 => \&pass0_as_text,
+                      2 => \&void_handler,
+                      4 => \&void_handler,
+                      8 => \&void_handler,
                       16 => \&pass0_bitcoin_handler,
                       32 => \&pass0_bitcoin_msg_handler,
+                      64 => \&pass0_as_text,
                      );
 
 my %pass1_handlers = (
-                      2 => \&pass1_as_text,
-                      4 => \&pass1_as_text,
-                      8 => \&pass1_as_text,
+                      2 => \&void_handler,
+                      4 => \&void_handler,
+                      8 => \&void_handler,
                       16 => \&pass1_bitcoin_handler,
                       32 => \&pass1_bitcoin_msg_handler,
+                      64 => \&pass1_as_text,
                      );
 
 my %pass2_handlers = (
-                      2 => \&pass2_as_text,
-                      4 => \&pass2_as_text,
-                      8 => \&pass2_as_text,
+                      2 => \&void_handler,
+                      4 => \&void_handler,
+                      8 => \&void_handler,
                       16 => \&pass2_bitcoin_handler,
                       32 => \&pass2_bitcoin_msg_handler,
+                      64 => \&pass2_as_text,
                      );
 
-
-
-
-
 sub child_main {
-
-
+	
 	my $filename = $_[0];
+	my $rootfn = "$0 $filename";
+	$0 = "$rootfn waiting"; # Make it easier to see who is doing what
+
+	lock(4); # to be unlocked by the parent when this guy dies. lock is misnomer, just a semaphore to throttle #kids
+	#print { my_out() } "Child $$ proceeding\n";
 
 
-	open(my $IN, '<', $filename) or die "Could not open file";
+	$g_dbh = get_handle();
+
+	{
+		my $stmt = $g_dbh->prepare('select succeeded from imported where filename = ?');
+		$stmt->execute($filename);
+		my $aref = $stmt->fetch;
+		if ($aref) {
+			if (! $aref->[0]) {
+				print { my_err() } "Not importing $filename. A Failed import exists in the imported table.\n";
+				exit(1);
+			} else {
+				#print { my_out() } "Skipping $filename, already imported\n";
+				exit(0); #already imported, yay
+			}
+		}
+	}
+
+	my $IN;
+
+	if (index($filename, 'gz') != -1) {
+		$0 = "$rootfn gunzip";
+		my $rv = system("gunzip -c $filename > $filename.unzipped");
+		if ($rv != 0) {
+			print "Could not gunzip file: $!\n";
+			exit(1);
+		}
+		open($IN, '<', "$filename.unzipped") or die "Could not open file: $!\n";
+		unlink("$filename.unzipped");
+	} else {
+		open($IN, '<', $filename) or die "Could not open file: $!\n";
+	}
+
+	{
+		my $stmt = $g_dbh->prepare('insert into imported (filename, size) values (?, ?)');
+		$stmt->execute($filename, (stat($IN))[7]);
+		$g_dbh->commit;
+	}
+
 
 	foreach (qw/messages bitcoin_cxn_messages cxn_text_map bitcoin_messages bitcoin_message_payloads text_messages/) {
 		open(my $fp, '+>', "$_.$$.copy") or die "Could not open file: $!\n";
@@ -431,75 +546,114 @@ sub child_main {
 	}
 
 
-	$g_dbh = get_handle();
 
-	lock();
-	$g_dbh->do("LOCK TABLE addresses IN SHARE MODE");
-	$g_pass_data[0]{address_set} = fetch_all_addr_id();
-	$g_pass_data[0]{address_copy} = [];
-	$g_pass_data[0]{text_messages} = 0;
-	do_pass($IN, "Counting and address pass", \%pass0_handlers);
+	$0 = "$rootfn waiting 0";
+	lock(0);
+	$0 = "$rootfn doing pass 0";
+	eval {
+		$g_dbh->do("LOCK TABLE addresses IN SHARE MODE");
+		$g_pass_data[0]{address_set} = fetch_all_addr_id();
+		$g_pass_data[0]{address_copy} = [];
+		$g_pass_data[0]{text_messages} = 0;
+		do_pass($IN, "Counting and address pass", \%pass0_handlers);
 
-	$g_dbh->do("COPY addresses FROM STDIN");
-	foreach my $a (@{ $g_pass_data[0]{address_copy} }) {
-		$g_dbh->pg_putcopydata($a);
+		$g_dbh->do("COPY addresses FROM STDIN");
+		foreach my $a (@{ $g_pass_data[0]{address_copy} }) {
+			$g_dbh->pg_putcopydata($a);
+		}
+		$g_dbh->pg_putcopyend();
+		$g_dbh->commit;				  #release lock
+	};
+	if ($@) {
+		unlock(0);
+		die $@;
 	}
-	$g_dbh->pg_putcopyend();
-	$g_dbh->commit;				  #release lock
-	unlock();
+	unlock(0);
 
+
+	$0 = "$rootfn bucket processing";
+	process_buckets();
 
 	$g_pass_data[1]{rows} = $g_pass_data[0]{rows};
 	$g_pass_data[1]{text_messages} = $g_pass_data[0]{text_messages};
 	$g_pass_data[0] = {};
 
 
-	lock();
-	$g_dbh->do("LOCK TABLE text_strings IN SHARE MODE");
-	$g_pass_data[1]{text_next} = jump_sequence('text_strings_id_seq', $g_pass_data[1]{text_messages}+1);
+	$0 = "$rootfn waiting 1";
+	lock(1);
+	$0 = "$rootfn doing pass 1";
+	eval {
+		$g_dbh->do("LOCK TABLE text_strings IN SHARE MODE");
+		$g_pass_data[1]{text_next} = jump_sequence('text_strings_id_seq', 0);
+		my $original_next = $g_pass_data[1]{text_next};
 
-	prepopulate_text_id;
-	seek($IN, 0, SEEK_SET);
-	$g_pass_data[1]{text_copy} = [];
-	do_pass($IN, "text string pass", \%pass1_handlers);
-	$g_dbh->do("COPY text_strings FROM STDIN");
-	foreach my $a (@{ $g_pass_data[1]{text_copy} }) {
-		$g_dbh->pg_putcopydata($a);
+		prepopulate_text_id;
+		seek($IN, 0, SEEK_SET);
+		$g_pass_data[1]{text_copy} = [];
+		do_pass($IN, "text string pass", \%pass1_handlers);
+		jump_sequence('text_strings_id_seq', $g_pass_data[1]{text_next}+1 - $original_next);
+		$g_dbh->do("COPY text_strings FROM STDIN");
+		foreach my $a (@{ $g_pass_data[1]{text_copy} }) {
+			$g_dbh->pg_putcopydata($a);
+		}
+		$g_dbh->pg_putcopyend();
+		$g_dbh->commit;				  #release lock
+	};
+	if ($@) {
+		unlock(1);
+		die $@;
 	}
-	$g_dbh->pg_putcopyend();
-	$g_dbh->commit;				  #release lock
-	unlock();
-
+	unlock(1);
+	
 	$g_pass_data[2]{rows} = $g_pass_data[1]{rows};
 	$g_pass_data[2]{cid_rows} = $g_pass_data[1]{cid_rows};
 	$g_pass_data[2]{bid_rows} = $g_pass_data[1]{bid_rows};
 	$g_pass_data[1] = {};
 
-	lock();
-	$g_dbh->do("LOCK TABLE messages IN SHARE MODE");
-	$g_pass_data[2]{next_mid} = jump_sequence('messages_id_seq', $g_pass_data[2]{rows});
-	$g_dbh->commit;
-	unlock();
+	$0 = "$rootfn doing table jumps";
+	lock(2);
+	eval {
+		$g_dbh->do("LOCK TABLE messages IN SHARE MODE");
+		$g_pass_data[2]{next_mid} = jump_sequence('messages_id_seq', $g_pass_data[2]{rows});
+		$g_dbh->commit;
+	};
+	if ($@) {
+		unlock(2);
+		die $@;
+	}
+	unlock(2);
 
-	lock();
-	$g_dbh->do("LOCK TABLE bitcoin_cxn_messages IN SHARE MODE");
-	$g_pass_data[2]{next_cid} = jump_sequence('bitcoin_cxn_messages_id_seq', $g_pass_data[2]{cid_rows});
-	$g_dbh->commit;
-	unlock();
+	lock(3);
+	eval {
+		$g_dbh->do("LOCK TABLE bitcoin_cxn_messages IN SHARE MODE");
+		$g_pass_data[2]{next_cid} = jump_sequence('bitcoin_cxn_messages_id_seq', $g_pass_data[2]{cid_rows});
+		$g_dbh->commit;
+	}; 
+	if ($@) {
+		unlock(3);
+		die $@;
+	}
+	unlock(3);
 
-	lock();
-	$g_dbh->do("LOCK TABLE bitcoin_messages IN SHARE MODE");
-	$g_pass_data[2]{next_bid} = jump_sequence('bitcoin_messages_id_seq', $g_pass_data[2]{bid_rows});
-	$g_dbh->commit;
-	unlock();
+	lock(3);
+	eval {
+		$g_dbh->do("LOCK TABLE bitcoin_messages IN SHARE MODE");
+		$g_pass_data[2]{next_bid} = jump_sequence('bitcoin_messages_id_seq', $g_pass_data[2]{bid_rows});
+		$g_dbh->commit;
+	};
+	if ($@) {
+		unlock(3);
+		die $@;
+	}
+	unlock(3);
 
 
+	$0 = "$rootfn doing pass 2";
 	seek($IN, 0, SEEK_SET);
 	do_pass($IN, "Main pass", \%pass2_handlers);
 
+	$0 = "$rootfn creating tables";
 	{
-		my $stmt = $g_dbh->prepare('insert into imported (filename) values (?)');
-		$stmt->execute($filename);
 		$g_suffix = '' . $g_dbh->last_insert_id(undef, undef, undef, undef, {sequence=>'imported_id_seq'});
 		my @statements = (
 		                  "CREATE TABLE messages${g_suffix} () INHERITS (messages)",
@@ -516,6 +670,7 @@ sub child_main {
 
 
 	foreach my $t (qw/messages bitcoin_cxn_messages bitcoin_messages text_messages cxn_text_map bitcoin_message_payloads/) {
+		$0 = "$rootfn copy ${t}${g_suffix}";
 		$g_dbh->do("COPY ${t}${g_suffix} FROM STDIN");
 		seek($g_pass_data[2]{$t}, 0, SEEK_SET);
 		my $fh = $g_pass_data[2]{$t};
@@ -526,6 +681,7 @@ sub child_main {
 		close($g_pass_data[2]{$t});
 	}
 
+	$0 = "$rootfn final statements";
 	{
 		my @statements =
 		  (
@@ -558,6 +714,7 @@ sub child_main {
 		   "ALTER TABLE bitcoin_message_payloads${g_suffix} ADD CONSTRAINT bitcoin_message_payloads${g_suffix}_bitcoin_msg_id_key UNIQUE (bitcoin_msg_id)",
 		   "ALTER TABLE bitcoin_message_payloads${g_suffix} ADD CONSTRAINT bitcoin_message_payloads${g_suffix}_bitcoin_msg_id_fkey FOREIGN KEY (bitcoin_msg_id) REFERENCES bitcoin_messages${g_suffix}(id)",
 		   "CREATE INDEX timestamp_idx${g_suffix} ON messages${g_suffix}(timestamp)",
+		   "CREATE INDEX bcm_handle_id${g_suffix} ON bitcoin_cxn_messages${g_suffix}(handle_id)",
 		  );
 
 		foreach my $s (@statements) {
@@ -573,6 +730,9 @@ sub child_main {
 		$stmt->finish;
 		$stmt = $g_dbh->prepare("alter table messages${g_suffix} add constraint timechk${g_suffix} CHECK (timestamp >= ? and timestamp <= ?)");
 		$stmt->execute($aref->[0], $aref->[1]);
+		$g_dbh->commit;
+		$stmt = $g_dbh->prepare("update imported set succeeded = ?, finished = now() where filename = ?");
+		$stmt->execute(1, $filename);
 	}
 
 	close($IN);
@@ -586,7 +746,6 @@ sub child_main {
 foreach my $filename (@ARGV) {
 	my $pid = fork();
 	if ($pid > 0) {
-		print { my_out() } "Made child $pid\n";
 		$g_pids{$pid} = $filename;
 	} elsif ($pid == 0) {
 		child_main($filename);
@@ -596,16 +755,32 @@ foreach my $filename (@ARGV) {
 	}
 }
 
+my $pname = $0;
+my $succeeded = 0;
+$0 = "$pname Waiting on " . scalar(keys %g_pids) . " children";
 while(scalar(keys %g_pids)) {
 	my $cpid = wait;
 	if ($cpid > 0) {
 		delete $g_pids{$cpid};
 		if ($? != 0) {
-			print STDERR "Wait gave non-zero status for $cpid: $?\n";
+			print { my_out() } "Wait gave non-zero status for $cpid: $?\n";
+		} else {
+			$succeeded++;
 		}
+		$0 = "$pname Waiting on " . scalar(keys %g_pids) . " children";
+		unlock(4);
 	} elsif ($cpid == -1) {
 		print STDERR "No children to wait on\n";
 	}
+}
+
+if ($succeeded) {
+	eval {
+		my $dbh = get_handle();
+		$dbh->do("refresh materialized view address_mapping_v");
+		$dbh->commit;
+	};
+	print "$@\n" if ($@);
 }
 
 $g_sem->remove();
