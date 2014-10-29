@@ -201,14 +201,16 @@ handler::handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_ad
 	assert(io.fd > 0);
 	io.start();
 
-	if (g_ping_iv < 0) {
+	
+}
+
+void handler::start_pingers() {
+
+	if (g_ping_iv < 0 || g_active_ping_iv < 0) {
 		const libconfig::Config *cfg(get_config());
 		int pf = cfg->lookup("connector.bitcoin.ping_frequency");
 		g_ping_iv = max(0, pf);
-	}
 
-	if (g_active_ping_iv < 0) {
-		const libconfig::Config *cfg(get_config());
 		double pm = cfg->lookup("connector.bitcoin.active_ping.mean");
 		g_active_ping_iv = max(0.0, pm);
 	}
@@ -221,13 +223,12 @@ handler::handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_ad
 
 	if (g_active_ping_iv > 0) {
 		active_ping_timer.set<handler, &handler::active_pinger_cb>(this);
-		active_ping_timer.set(min(0.0, get_randping()));
+		active_ping_timer.set(max(0.0, get_randping()));
 		active_ping_timer.start();
 	}
-
-
-	
 }
+
+
 
 void handler::pinger_cb(ev::timer &/*w*/, int /*revents*/) {
 	ev::tstamp after = last_activity - ev::now(ev_default_loop()) + g_ping_iv;
@@ -258,27 +259,36 @@ void handler::active_pinger_cb(ev::timer &/*w*/, int /*revents*/) {
 void handler::handle_message_recv(const struct packed_message *msg) { 
 	g_log<BITCOIN_MSG>(id, false, msg);
 	if (strcmp(msg->command, "ping") == 0) {
-		struct packed_message *pong = static_cast<struct packed_message*>(alloca(sizeof(pong) + msg->length));
-		memcpy(pong, msg, sizeof(*pong) + msg->length);
+		wrapped_buffer<uint8_t> pongbuf(sizeof(*msg) + msg->length);
+		struct packed_message *pong = (struct packed_message *) pongbuf.ptr();
+		memcpy(pong, msg, sizeof(*msg) + msg->length);
 		pong->command[1] = 'o';
-		append_for_write(pong);
+		append_for_write(pongbuf);
 	} else if (strcmp(msg->command, "getblocks") == 0) {
 		vector<uint8_t> payload(get_inv(vector<inv_vector>()));
 		append_for_write(get_message("inv", payload));
-	} else if (false && strcmp(msg->command, "getaddr") == 0) { /* need to be careful about pollution, placeholder */
-		// see commit 9f30aa21efe3080b004d5a48ef7be46e9b88e9a5 for placeholder code here 
-	} else if (strcmp(msg->command, "version") == 0) {
-		/* start height is 5 bytes from the end... */
+	} else if (strncmp(msg->command, "ver", 3) == 0) {
+		switch(msg->command[3]) {
+		case 'a': //"verack";
+			start_pingers();
+			break;
+		case 's': //"version"
+				{
+					/* start height is 5 bytes from the end... */
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
-		int32_t given_block = *((int32_t*) (msg->payload + msg->length - 5));
+					int32_t given_block = *((int32_t*) (msg->payload + msg->length - 5));
 #pragma GCC diagnostic warning "-Wstrict-aliasing"
-		//cerr << "given block is " << given_block << "\n";
-		if (given_block < 500000 && given_block > g_last_block) {
-			/* TODO: correct behavior? */
-			// There are some weird big given blocks out there.
-			g_last_block = given_block;
+					//cerr << "given block is " << given_block << "\n";
+					if (given_block < 500000 && given_block > g_last_block) {
+						/* TODO: correct behavior? */
+						// There are some weird big given blocks out there.
+						g_last_block = given_block;
+					}
+				}
+			break;
+		default:
+			g_log<DEBUG>("Unexpected command", msg->command);
 		}
-
 	}
 }
 
@@ -327,7 +337,7 @@ void handler::append_for_write(const struct packed_message *m) {
 }
 
 void handler::append_for_write(wrapped_buffer<uint8_t> buf) {
-	const  struct packed_message *m = (const struct packed_message*) buf.const_ptr();
+	const struct packed_message *m = (const struct packed_message*) buf.const_ptr();
 	g_log<BITCOIN_MSG>(id, true, m);
 	write_queue.append(buf, m->length + sizeof(*m));
 
@@ -427,6 +437,7 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 
 				append_for_write(move(vmsg));
 				append_for_write(get_message("verack"));
+				start_pingers();
 				state = SEND_VERSION_REPLY | RECV_HEADER;
 				break;
 			}
