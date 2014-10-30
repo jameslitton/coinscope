@@ -30,6 +30,38 @@ static double g_active_ping_iv = -1;
 
 static set<connect_handler *> g_inactive_connection_handlers; /* to be deleted */
 
+static const sockaddr_in * external_addr() { // This picks an externally bound address at random to broadcast as our external address
+	static bool done(false);
+	static sockaddr_in out;
+	if (done) {
+		return &out;
+	}
+	const libconfig::Config *cfg(get_config());
+
+	libconfig::Setting &list = cfg->lookup("connector.bitcoin.listeners");
+	size_t idx;
+	if (list.getLength() == 1) {
+		idx = 0;
+	} else {
+		random_device rd;
+		mt19937 gen(rd());
+		uniform_int_distribution<> dis(0,list.getLength() - 1);
+		idx = dis(gen);
+	}
+	libconfig::Setting &setting = list[idx];
+	string family((const char*)setting[0]);
+	string ipv4((const char*)setting[1]);
+	uint16_t port((int)setting[2]);
+	bzero(&out, sizeof(out));
+	out.sin_family = AF_INET;
+	out.sin_port = htons(port);
+	if (inet_pton(AF_INET, ipv4.c_str(), &out.sin_addr) != 1) {
+		g_log<ERROR>("Bad address format on address", idx, strerror(errno));
+	}
+	done = true;
+	return &out;
+}
+
 
 static double get_randping() {
 	static mt19937 gen(time(NULL) + getpid());
@@ -188,7 +220,8 @@ handler::handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_ad
 	if (a_state == SEND_VERSION_INIT) { /* we initiated the connection */
 		io.set(fd, ev::WRITE);
 		/* TODO: profile to see if extra copies are worth optimizing away */
-		struct combined_version vers(get_version(USER_AGENT, local_addr, remote_addr));
+		const struct sockaddr_in * external = external_addr();
+		struct combined_version vers(get_version(USER_AGENT, *external, remote_addr));
 		unique_ptr<struct packed_message> m(get_message("version", vers.as_buffer(), vers.size));
 		g_log<BITCOIN_MSG>(id, true, m.get());
 		write_queue.append((const uint8_t *) m.get(), m->length + sizeof(*m));
@@ -247,8 +280,16 @@ void handler::pinger_cb(ev::timer &/*w*/, int /*revents*/) {
 }
 
 void handler::active_pinger_cb(ev::timer &/*w*/, int /*revents*/) {
-	uint64_t nonce = nonce_gen64();
-	auto m(get_message("ping", (uint8_t*)&nonce, 8));
+	static uint8_t payload[1+4+sizeof(full_packed_net_addr)];
+	struct full_packed_net_addr *addr = (struct full_packed_net_addr*) (payload + 1);
+
+	if (payload[0] == 0) {
+		to_varint(payload, 1);
+		const struct sockaddr_in *external = external_addr();
+		set_address(&addr->rest, *external);
+	}
+	addr->time = ev::now(ev_default_loop());
+	auto m(get_message("addr", payload, 1+4+sizeof(full_packed_net_addr)));
 	append_for_write(move(m));
 	active_ping_timer.stop();
 	active_ping_timer.set(max(5.0, get_randping()));
@@ -432,7 +473,8 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 				read_queue.cursor(0);
 				read_queue.to_read(sizeof(struct packed_message));
 					
-				struct combined_version vers(get_version(USER_AGENT, remote_addr, local_addr));
+				const struct sockaddr_in * external = external_addr();
+				struct combined_version vers(get_version(USER_AGENT, remote_addr, *external));
 				unique_ptr<struct packed_message> vmsg(get_message("version", vers.as_buffer(), vers.size));
 
 				append_for_write(move(vmsg));
