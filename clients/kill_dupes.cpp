@@ -92,13 +92,26 @@ int main(int argc, char *argv[]) {
 				cxn[info->remote_addr].push_back(info->handle_id);
 		});
 
+	size_t cnt(0);
+
 	for(auto &c : cxn) {
-		for(size_t i = 1; i < c.second.size(); ++i) {
-			cout << "Disconnecting " << c.second[i] << endl;
-			struct outgoing_message disconn(disconnect_msg(c.second[i]));
-			do_write(sock, disconn.buffer.const_ptr(), disconn.length);
-		}
+	  if (c.second.size() > 1) {
+	    uint32_t max_id = 0; //always disconnect oldest if a dupe exists.
+	    for(size_t i = 0; i < c.second.size(); ++i) {
+	      max_id = max(max_id, ntoh(c.second[i]));
+	    }
+	    for(size_t i = 0; i < c.second.size(); ++i) {
+	      if (max_id > ntoh(c.second[i])) {
+		cnt++;
+		struct outgoing_message disconn(disconnect_msg(c.second[i]));
+		do_write(sock, disconn.buffer.const_ptr(), disconn.length);
+	      }
+	    }
+	  }
+
 	}
+
+	cout << "disconnected " << cnt << " handles\n";
 
 	return EXIT_SUCCESS;
 };

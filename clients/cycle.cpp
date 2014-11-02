@@ -139,19 +139,24 @@ int main(int argc, char *argv[]) {
 	get_all_cxn(sock, [&](struct connection_info *info, size_t ) {
 			if (bound_addrs.find(info->local_addr) != bound_addrs.end()) {
 				/* local address is bound address, so they connected to us */
+			  cout << "Locally connected to " << info->remote_addr << " inferred from " << info->local_addr << endl;
 				incoming_cxn[info->remote_addr] = info->handle_id;
 			} else {
 				outgoing_cxn[info->remote_addr] = info->handle_id;
 			}
 		});
 
+	size_t cnt = 0;
+
 	for(auto &p : outgoing_cxn) { /* disconnect reconnect */
-		cout << "Cycling " << p.second << endl;
-		struct outgoing_message disconn(disconnect_msg(p.second));
-		do_write(sock, disconn.buffer.const_ptr(), disconn.length);		
-		struct outgoing_message conn(connect_msg(p.first));
-		do_write(sock, conn.buffer.const_ptr(), conn.length);
+	  cnt++;
+	  //cout << "Cycling " << ntoh(p.second) << endl;
+	  struct outgoing_message disconn(disconnect_msg(p.second));
+	  do_write(sock, disconn.buffer.const_ptr(), disconn.length);	  
+	  struct outgoing_message conn(connect_msg(p.first));
+	  do_write(sock, conn.buffer.const_ptr(), conn.length);
 	}
+	cout << "cycled " << cnt << " handles\n";
 
 	/* capture any new bitcoin messages before next part */
 	int bitcoin_client = unix_sock_client(client_dir + "bitcoin", false);
@@ -166,11 +171,11 @@ int main(int argc, char *argv[]) {
 	/* wait for notices, upon success disconnect old one. Upon failure leave it alone */
 	bcwatch watcher(bitcoin_client, 
 	                [&](unique_ptr<struct bc_channel_msg> bc_msg) { 
-		                cout << "Denatted " << bc_msg->remote << endl;
 		                auto cnt = remaining.erase(bc_msg->remote);
 		                if (cnt > 0) {
-			                struct outgoing_message disconn(disconnect_msg(incoming_cxn[bc_msg->remote]));
-			                do_write(sock, disconn.buffer.const_ptr(), disconn.length);		
+				  cout << "Denatted " << bc_msg->remote << endl;
+				  struct outgoing_message disconn(disconnect_msg(incoming_cxn[bc_msg->remote]));
+				  do_write(sock, disconn.buffer.const_ptr(), disconn.length);		
 		                }
 	                },
 	                [&](unique_ptr<struct bc_channel_msg> bc_msg) { 
@@ -179,7 +184,6 @@ int main(int argc, char *argv[]) {
 	                });
 	while(remaining.size()) {
 		watcher.loop_once();
-		
 	}
 	return EXIT_SUCCESS;
 };
