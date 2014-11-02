@@ -143,11 +143,13 @@ int main(int argc, char *argv[]) {
 	sigact.sa_handler = sigchld;
 	sigact.sa_flags = 0;
 
+	sigaction(SIGCHLD, &sigact, NULL);
+
 	const libconfig::Config *cfg(get_config());
 	const char *config_file = cfg->lookup("version").getSourceFile();
 
 	string g_logpath = (const char*)cfg->lookup("verbatim.logpath") ;
-	string filename = g_logpath + "/" + "verbatim.seed";
+	string filename = g_logpath + "/" + "verbatim.log";
 
 	for(;;) {
 
@@ -200,22 +202,49 @@ int main(int argc, char *argv[]) {
 		string root((const char*)cfg->lookup("logger.root"));
 		string logpath = root + "servers";
 		try {
-			g_log_buffer = new log_buffer(unix_sock_client(logpath, true));
+		  g_log_buffer = new log_buffer(unix_sock_client(logpath, true));
 		} catch (const network_error &e) {
-			cerr << "WARNING: Could not connect to log server! " << e.what() << endl;
+		  cerr << "WARNING: Could not connect to log server! " << e.what() << endl;
 		}
 
 		time_t start_time = time(NULL);
 		g_log<DEBUG>("Initiating GETADDR probe");
+		g_log_buffer->io_cb(g_log_buffer->io, 0);
 		cerr << "Initiating GETADDR probe" << endl;
 
 
+		// Killing any dupes (Oh noes, why dupes!)
+		cerr << "attempting to kill dupes before run\n";
+		pid_t child = fork();
+		if (child == 0) {
+		  const char *kill_dupes = "/home/litton/netmine/clients/kill_dupes";
+		  execl(kill_dupes, kill_dupes, config_file, NULL);
+		  cerr << "Failed to kill dupes!\n";
+		} else if (child > 0) {
+		  int count = 0;
+		  sigaction(SIGCHLD, &sigact, NULL);
+		  while(true) {
+		    if (lastpid != child) {
+		      if (count++ > 10) {
+			cerr << "Manually killing kill_dupes" << endl;
+			if (kill(child, SIGTERM) < 0) {
+			  cerr << "Could not send SIGTERM to " << child << endl;
+			}
+		      }
+		      sleep(1);
+		    } else {
+		      break;
+		    }
+		  }
+		  
+		}
 
 
 		g_log<DEBUG>("Cycling...");
+		g_log_buffer->io_cb(g_log_buffer->io, 0);
 		cerr << "Cycling..." << endl;
 		/* call cycle and wait */
-		pid_t child = fork();
+		child = fork();
 
 		if (child == 0) {
 			const char *cycle = "/home/litton/netmine/clients/cycle";
@@ -248,6 +277,7 @@ int main(int argc, char *argv[]) {
 		int sock = unix_sock_client((const char*)cfg->lookup("connector.control_path"), false);
 	
 		g_log<DEBUG>("Fetching existing connections...");
+		g_log_buffer->io_cb(g_log_buffer->io, 0);
 		cerr << "Fetching existing connections..." << endl;
 		get_all_cxn(sock, [&](struct ctrl::connection_info *info, size_t) {
 				g_to_connect.erase(info->remote_addr);
@@ -272,6 +302,7 @@ int main(int argc, char *argv[]) {
 		}
 		local_addr.sin_port = hton(static_cast<uint16_t>(0xdead));
 		g_log<DEBUG>("Initiating new connections...");
+		g_log_buffer->io_cb(g_log_buffer->io, 0);
 		cerr << "Initiating new connections..." << endl;
 		int count = 0;
 		for(auto it = g_to_connect.cbegin(); it != g_to_connect.cend(); ++it) {
@@ -287,10 +318,36 @@ int main(int argc, char *argv[]) {
 
 		cerr << "Giving connections two minutes" << endl;
 		sleep(120);
+
+		// Killing any dupes (Oh noes, why dupes!)
+		cerr << "attempting to kill dupes after cycle\n";
+		child = fork();
+		if (child == 0) {
+		  const char *kill_dupes = "/home/litton/netmine/clients/kill_dupes";
+		  execl(kill_dupes, kill_dupes, config_file, NULL);
+		  cerr << "Failed to kill dupes!\n";
+		} else if (child > 0) {
+		  int count = 0;
+		  while(true) {
+		    if (lastpid != child) {
+		      if (count++ > 10) {
+			cerr << "Manually killing kill_dupes" << endl;
+			if (kill(child, SIGTERM) < 0) {
+			  cerr << "Could not send SIGTERM to " << child << endl;
+			}
+		      }
+		      sleep(1);
+		    } else {
+		      break;
+		    }
+		  }
+		  
+		}
 	
 
 		cerr << "Launching getaddr" << endl;
 		g_log<DEBUG>("launching getaddr program...");
+		g_log_buffer->io_cb(g_log_buffer->io, 0);
 
 
 		/* call getaddr and wait */
@@ -306,18 +363,31 @@ int main(int argc, char *argv[]) {
 			while(true) {
 				if (lastpid != child) {
 					time_t now = time(NULL);
-					if (now - start_time >= 60*60) {
+					/* Rules for proceeding to next start time:
+					 * Last must start have been 15 minutes ago
+					 * and should repeat every 4 hours on the 
+					 * 17th minute
+					 */
+					const time_t period = 240*60;
+					const time_t offset = 17*60;
+					const time_t minim = 10*60;
+					time_t next = ((start_time+period-offset-1) / period)*period + offset;
+					if (next - start_time <= minim) next += period;
+					if (now >= next) {
 						cerr << "Manually killing getaddr" << endl;
 						if (kill(child, SIGTERM) < 0) {
 							cerr << "Could not send SIGTERM to " << child << endl;
 						}
 					}
-					sleep(60*60 - (now - start_time));
+					cerr << "Sleeping for " << (next-now)/60 << " minutes" << endl;
+					sleep(next - now);
 				} else {
 					break;
 				}
 			}
 		}
+		close(g_log_buffer->fd);
+		delete g_log_buffer;
 
 		filename = g_logpath + "/" + "verbatim.log";
 
