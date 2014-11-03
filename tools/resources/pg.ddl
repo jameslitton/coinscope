@@ -2,8 +2,26 @@ BEGIN TRANSACTION;
 
 CREATE TABLE imported (
    id serial PRIMARY KEY,
-   filename varchar NOT NULL UNIQUE
+   filename varchar NOT NULL UNIQUE,
+   started TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+   finished TIMESTAMP WITH TIME ZONE,
+   size int8 NOT NULL,
+   succeeded BOOLEAN NOT NULL DEFAULT false
 );
+
+CREATE TYPE experiment AS ENUM ('getaddr', 'txprobe');
+CREATE TABLE experiments (
+   experiment experiment NOT NULL,
+   start_time timestamp with time zone NOT NULL,
+   end_time timestamp with time zone,
+   PRIMARY KEY(experiment, start_time)
+);
+
+CREATE RULE experiments_ignore_dupes AS
+   ON INSERT TO experiments
+   WHERE 
+   (EXISTS (select 1 from experiments where experiments.start_time = NEW.start_time and experiments.experiment = NEW.experiment)) DO INSTEAD NOTHING;
+
 
 CREATE TABLE msg_types (
    id INTEGER PRIMARY KEY,
@@ -80,13 +98,14 @@ CREATE RULE addresses_ignore_dupes AS
 
 CREATE TABLE bitcoin_cxn_messages (
    id bigserial PRIMARY KEY,
-   message_id bigint NOT NULL UNIQUE REFERENCES messages(id),
+   message_id BIGINT NOT NULL UNIQUE REFERENCES messages(id),
    handle_id INTEGER NOT NULL,
    cxn_type_id INTEGER NOT NULL REFERENCES bitcoin_cxn_types(id),
    remote_id int8 NOT NULL REFERENCES addresses(id),
    local_id int8 NOT NULL REFERENCES addresses(id)
 );
 
+CREATE INDEX bcm_handle_id ON bitcoin_cxn_messages(handle_id);
 CREATE INDEX bc_tid ON bitcoin_cxn_messages(cxn_type_id);
 
 CREATE TABLE cxn_text_map (
@@ -100,6 +119,22 @@ CREATE TABLE commands (
    command varchar(12) NOT NULL UNIQUE
 );
 
+INSERT INTO commands (command) VALUES 
+('addr'),
+('getaddr'),
+('getblocks'),
+('getdata'),
+('inv'),
+('notfound'),
+('ping'),
+('pong'),
+('reject'),
+('tx'),
+('verack'),
+('version');
+
+
+
 CREATE RULE commands_ignoredupes AS
    ON INSERT TO commands
    WHERE 
@@ -109,7 +144,7 @@ CREATE RULE commands_ignoredupes AS
 
 CREATE TABLE bitcoin_messages (
    id bigserial PRIMARY KEY,
-   message_id INTEGER NOT NULL UNIQUE REFERENCES messages(id),
+   message_id bigint NOT NULL UNIQUE REFERENCES messages(id),
    handle_id INTEGER NOT NULL,
    is_sender BOOLEAN NOT NULL,
    command_id INTEGER NOT NULL REFERENCES commands(id)
@@ -144,14 +179,48 @@ LEFT JOIN cxn_text_map cmap ON btc.id = cmap.bitcoin_cxn_msg_id
 LEFT JOIN text_strings ts ON cmap.txt_id = ts.id
 WHERE m.type_id = 16;
 
-
 CREATE VIEW bitcoin_txt_v AS
 SELECT m.source_id, m.timestamp, t.type, ts.txt 
 FROM messages m
 JOIN msg_types t ON t.id = m.type_id 
 JOIN text_messages tm ON tm.message_id = m.id
 JOIN text_strings ts ON tm.text_id = ts.id
-WHERE (m.type_id = 2 OR m.type_id = 4 OR m.type_id = 8);
+WHERE m.type_id in (2,4,8,64);
+
+CREATE MATERIALIZED VIEW address_mapping_v AS
+SELECT m.source_id, cxnm.handle_id, cxnm.remote_id, a.family, a.address, a.port 
+FROM messages m 
+JOIN bitcoin_cxn_messages cxnm  ON m.id = cxnm.message_id
+JOIN addresses a ON a.id = cxnm.remote_id
+WHERE cxn_type_id = 1;
+
+CREATE UNIQUE INDEX amv_sh_idx ON address_mapping_v(source_id, handle_id);
+
+CREATE VIEW address_mapping_live_v AS
+SELECT m.source_id, cxnm.handle_id, cxnm.remote_id, a.family, a.address, a.port 
+FROM messages m 
+JOIN bitcoin_cxn_messages cxnm  ON m.id = cxnm.message_id
+JOIN addresses a ON a.id = cxnm.remote_id
+WHERE cxn_type_id = 1;
+
+CREATE VIEW bitcoin_message_extended_v AS
+SELECT m.source_id, m.timestamp, bt.handle_id, bt.is_sender, bt.command_id, c.command, p.payload, amv.remote_id, amv.address, amv.port
+FROM messages m
+JOIN bitcoin_messages bt ON m.id = bt.message_id
+JOIN commands c ON c.id = bt.command_id
+LEFT JOIN bitcoin_message_payloads p ON bt.id = p.bitcoin_msg_id
+JOIN address_mapping_v amv ON m.source_id = amv.source_id and bt.handle_id = amv.handle_id
+WHERE m.type_id = 32;
+
+CREATE VIEW bitcoin_message_extended_live_v AS
+SELECT m.source_id, m.timestamp, bt.handle_id, bt.is_sender, bt.command_id, c.command, p.payload, amv.remote_id, amv.address, amv.port
+FROM messages m
+JOIN bitcoin_messages bt ON m.id = bt.message_id
+JOIN commands c ON c.id = bt.command_id
+LEFT JOIN bitcoin_message_payloads p ON bt.id = p.bitcoin_msg_id
+JOIN address_mapping_live_v amv ON m.source_id = amv.source_id and bt.handle_id = amv.handle_id
+WHERE m.type_id = 32;
 
 
 END TRANSACTION;
+
