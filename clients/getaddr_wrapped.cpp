@@ -208,6 +208,8 @@ int main(int argc, char *argv[]) {
 		}
 
 		time_t start_time = time(NULL);
+		
+		ev_now_update(ev_default_loop());
 		g_log<DEBUG>("Initiating GETADDR probe");
 		g_log_buffer->io_cb(g_log_buffer->io, 0);
 		cerr << "Initiating GETADDR probe" << endl;
@@ -240,6 +242,7 @@ int main(int argc, char *argv[]) {
 		}
 
 
+		ev_now_update(ev_default_loop());
 		g_log<DEBUG>("Cycling...");
 		g_log_buffer->io_cb(g_log_buffer->io, 0);
 		cerr << "Cycling..." << endl;
@@ -276,6 +279,7 @@ int main(int argc, char *argv[]) {
 #ifndef FIND_CXN
 		int sock = unix_sock_client((const char*)cfg->lookup("connector.control_path"), false);
 	
+		ev_now_update(ev_default_loop());
 		g_log<DEBUG>("Fetching existing connections...");
 		g_log_buffer->io_cb(g_log_buffer->io, 0);
 		cerr << "Fetching existing connections..." << endl;
@@ -301,6 +305,7 @@ int main(int argc, char *argv[]) {
 			return EXIT_FAILURE;
 		}
 		local_addr.sin_port = hton(static_cast<uint16_t>(0xdead));
+		ev_now_update(ev_default_loop());
 		g_log<DEBUG>("Initiating new connections...");
 		g_log_buffer->io_cb(g_log_buffer->io, 0);
 		cerr << "Initiating new connections..." << endl;
@@ -346,6 +351,7 @@ int main(int argc, char *argv[]) {
 	
 
 		cerr << "Launching getaddr" << endl;
+		ev_now_update(ev_default_loop());
 		g_log<DEBUG>("launching getaddr program...");
 		g_log_buffer->io_cb(g_log_buffer->io, 0);
 
