@@ -157,6 +157,13 @@ CREATE TABLE bitcoin_message_payloads (
   payload bytea NOT NULL
 );
 
+CREATE TABLE address_mapping (
+   source_id INTEGER NOT NULL,
+   handle_id INTEGER NOT NULL,
+   remote_id int8 NOT NULL REFERENCES addresses(id)
+);
+
+
 CREATE VIEW bitcoin_message_v AS
 SELECT m.source_id, m.timestamp, bt.handle_id, bt.is_sender, c.command, p.payload
 FROM messages m
@@ -187,38 +194,21 @@ JOIN text_messages tm ON tm.message_id = m.id
 JOIN text_strings ts ON tm.text_id = ts.id
 WHERE m.type_id in (2,4,8,64);
 
-CREATE MATERIALIZED VIEW address_mapping_v AS
-SELECT m.source_id, cxnm.handle_id, cxnm.remote_id, a.family, a.address, a.port 
-FROM messages m 
-JOIN bitcoin_cxn_messages cxnm  ON m.id = cxnm.message_id
-JOIN addresses a ON a.id = cxnm.remote_id
-WHERE cxn_type_id = 1;
-
-CREATE UNIQUE INDEX amv_sh_idx ON address_mapping_v(source_id, handle_id);
-
 CREATE VIEW address_mapping_live_v AS
 SELECT m.source_id, cxnm.handle_id, cxnm.remote_id, a.family, a.address, a.port 
 FROM messages m 
 JOIN bitcoin_cxn_messages cxnm  ON m.id = cxnm.message_id
 JOIN addresses a ON a.id = cxnm.remote_id
-WHERE cxn_type_id = 1;
+WHERE cxn_type_id in (1,2);
 
 CREATE VIEW bitcoin_message_extended_v AS
-SELECT m.source_id, m.timestamp, bt.handle_id, bt.is_sender, bt.command_id, c.command, p.payload, amv.remote_id, amv.address, amv.port
+SELECT m.source_id, m.timestamp, bt.handle_id, bt.is_sender, bt.command_id, c.command, p.payload, am.remote_id, a.address, a.port
 FROM messages m
 JOIN bitcoin_messages bt ON m.id = bt.message_id
 JOIN commands c ON c.id = bt.command_id
 LEFT JOIN bitcoin_message_payloads p ON bt.id = p.bitcoin_msg_id
-JOIN address_mapping_v amv ON m.source_id = amv.source_id and bt.handle_id = amv.handle_id
-WHERE m.type_id = 32;
-
-CREATE VIEW bitcoin_message_extended_live_v AS
-SELECT m.source_id, m.timestamp, bt.handle_id, bt.is_sender, bt.command_id, c.command, p.payload, amv.remote_id, amv.address, amv.port
-FROM messages m
-JOIN bitcoin_messages bt ON m.id = bt.message_id
-JOIN commands c ON c.id = bt.command_id
-LEFT JOIN bitcoin_message_payloads p ON bt.id = p.bitcoin_msg_id
-JOIN address_mapping_live_v amv ON m.source_id = amv.source_id and bt.handle_id = amv.handle_id
+JOIN address_mapping am ON m.source_id = am.source_id and bt.handle_id = am.handle_id
+JOIN addresses a on a.id = am.remote_id
 WHERE m.type_id = 32;
 
 

@@ -16,7 +16,6 @@ use IPC::SysV qw/SEM_UNDO S_IRUSR S_IWUSR IPC_CREAT IPC_EXCL ftok/;
 use IPC::Semaphore;
 use Sys::CPU;
 
-
 # This reads a verbatim file and writes it to a database.
 
 my $g_dbh;
@@ -29,7 +28,7 @@ my $g_sem = IPC::Semaphore->new($id, 5, S_IRUSR | S_IWUSR | IPC_CREAT | IPC_EXCL
 if ($g_sem) {
 	my $cpus = Sys::CPU::cpu_count();
 	if ($cpus > 1) {
-		$cpus--; # Leave one core free 
+		$cpus--;						  # Leave one core free 
 	}
 	$g_sem->setval(0, 1);
 	$g_sem->setval(1, 1);
@@ -105,7 +104,7 @@ sub prepopulate_text_id {
 
 sub get_text_id {
 	my $text = shift;
-	$text =~ s/\x00*$//;			 # Log file includes terminating null...
+	$text =~ s/\x00*$//;	       # Log file includes terminating null...
 	unless (defined $g_text_id{$text}) {
 
 		my $text_sth = $g_dbh->prepare_cached(q{
@@ -138,11 +137,14 @@ sub copy_escape {
 
 sub pass0_as_text {
 	my ($source_id, $type, $timestamp, $rest) = @_;
-	if (length($rest)) {
-		pass0_get_text_id($rest);
+	$rest =~ s/\x00*$//;	       # Log file includes terminating null...
+	if ($type == 2 && $rest eq 'launching getaddr program...') {
+		$timestamp = $g_pass_data[0]{last_ts} if ($timestamp + 120 < $g_pass_data[0]{last_ts});
+		my $stmt = $g_dbh->prepare('insert into experiments (experiment, start_time) values (?, ?)');
+		$stmt->execute('getaddr', iso8601($timestamp));
 	}
-	$g_pass_data[0]{rows}++;
 }
+
 
 sub pass1_get_text_id {
 	my $original_text = shift;
@@ -201,6 +203,7 @@ sub pass0_bitcoin_handler {
 	    $local_family, $local_port, $local_addr, $lzeros,
 	    $text_len, $text) = unpack("NN${addr_pack}${addr_pack}NZ*", $rest);
 
+	$g_pass_data[0]{last_ts} = $timestamp;
 	my $remote_id = get_addr_key($remote_family, $remote_addr, $remote_port);
 	unless ($g_pass_data[0]{address_set}->contains($remote_id)) {
 		my $addr = inet_ntoa($remote_addr);
@@ -259,32 +262,32 @@ sub pass2_bitcoin_handler {
 
 my $g_consecutive_invalids = 0;
 BEGIN {
-    my %command_hash;
-    sub get_command_id {
-	unless (exists $command_hash{$_[0]}) {
-	    my $invalid = 0;
-	    my $str = $_[0];
-	    if ($str =~ /[[:^ascii:]]/) {
-		(my $p) = unpack("H*", $str);
-		$str = "\\x$p";
-		$str = substr($str, 0, 12);
-		$invalid = 1;
-	    }
-	    my $cmd_sth = $g_dbh->prepare_cached(q{
+	my %command_hash;
+	sub get_command_id {
+		unless (exists $command_hash{$_[0]}) {
+			my $invalid = 0;
+			my $str = $_[0];
+			if ($str =~ /[[:^ascii:]]/) {
+				(my $p) = unpack("H*", $str);
+				$str = "\\x$p";
+				$str = substr($str, 0, 12);
+				$invalid = 1;
+			}
+			my $cmd_sth = $g_dbh->prepare_cached(q{
 INSERT into commands (command) values (?)});
-	    $cmd_sth->execute($str);
+			$cmd_sth->execute($str);
 
-	    my $getcmd_sth = $g_dbh->prepare_cached(q{
+			my $getcmd_sth = $g_dbh->prepare_cached(q{
 select id from commands where command = ?});
-	    $getcmd_sth->execute($str);
+			$getcmd_sth->execute($str);
 
-	    my $rv = $getcmd_sth->fetch()->[0];
-	    $getcmd_sth->finish;
-	    $command_hash{$_[0]} = [ $rv, $invalid ];
+			my $rv = $getcmd_sth->fetch()->[0];
+			$getcmd_sth->finish;
+			$command_hash{$_[0]} = [ $rv, $invalid ];
+		}
+		$g_consecutive_invalids += $command_hash{$_[0]}[1];
+		return $command_hash{$_[0]}[0];
 	}
-	$g_consecutive_invalids += $command_hash{$_[0]}[1];
-	return $command_hash{$_[0]}[0];
-    }
 }
 
 
@@ -295,6 +298,9 @@ sub pass0_bitcoin_msg_handler {
 	    $magic, $command, $length,
 	    $checksum, $payload) = unpack("NCVZ[12]VVa*", $rest);
 	my $command_id = get_command_id($command);
+
+	$g_pass_data[0]{last_ts} = $timestamp;
+
 	if ($command eq 'getaddr') {
 		my $bucket = $timestamp - ($timestamp % 120);
 		$g_pass_data[0]{getaddr}{$bucket}++;
@@ -336,10 +342,10 @@ sub handle_message {
 	if (!defined $handlers->{$type}) {
 		print { my_err() } "Unhandled type : $type\n";
 	} else {
-	    my $lasterr = $g_consecutive_invalids;
-	    $handlers->{$type}->($source_id, $type, $timestamp, $rest);
-	    $g_consecutive_invalids = 0 if $g_consecutive_invalids  == $lasterr;
-	    die "three malformed messages in a row. Check for log corruption" if $g_consecutive_invalids > 3;
+		my $lasterr = $g_consecutive_invalids;
+		$handlers->{$type}->($source_id, $type, $timestamp, $rest);
+		$g_consecutive_invalids = 0 if $g_consecutive_invalids  == $lasterr;
+		die "three malformed messages in a row. Check for log corruption" if $g_consecutive_invalids > 3;
 	}
 }
 
@@ -352,8 +358,8 @@ BEGIN {
 
 		unless ($dbh) {
 			$dbh = DBI->connect("dbi:Pg:dbname=connector", "litton", "",
-			                       { RaiseError => 1,
-			                         AutoCommit => 0})
+			                    { RaiseError => 1,
+			                      AutoCommit => 0})
 			  or die $DBI::errstr;
 		}
 
@@ -446,7 +452,7 @@ sub process_buckets {
 		push(@v, abs($g_pass_data[0]{getaddr}{$b} - $median));
 		$sum_absdev += abs($g_pass_data[0]{getaddr}{$b} - $median);
 	}
-	
+
 	@v = sort { $a <=> $b } @v;
 	my $med_absdev;
 	if (($#v + 1) % 2 == 0) {
@@ -454,9 +460,9 @@ sub process_buckets {
 	} else {
 		$med_absdev = ($v[$#v / 2] + $v[($#v / 2) + 1]) / 2;
 	}
-	
+
 	my $avg_absdev = $sum_absdev / ($#buckets+1);
-	
+
 	# we collect statistics here to do several measures, but twice the average seems to be a good way to detect the start
 	my @getaddrs;
 	foreach my $b (@buckets) {
@@ -474,7 +480,7 @@ sub process_buckets {
 		}
 	}
 	my $stmt = $g_dbh->prepare('insert into experiments (experiment, start_time) values (?, ?)');
-	foreach(@getaddrs) {
+	foreach (@getaddrs) {
 		$stmt->execute('getaddr', iso8601($_->{first}));
 	}
 }
@@ -482,7 +488,7 @@ sub process_buckets {
 
 
 my %pass0_handlers = (
-                      2 => \&void_handler,
+                      2 => \&pass0_as_text,
                       4 => \&void_handler,
                       8 => \&void_handler,
                       16 => \&pass0_bitcoin_handler,
@@ -509,7 +515,7 @@ my %pass2_handlers = (
                      );
 
 sub child_main {
-	
+
 	my $filename = $_[0];
 	my $rootfn = "$0 $filename";
 	$0 = "$rootfn waiting\0"; # Make it easier to see who is doing what
@@ -530,7 +536,7 @@ sub child_main {
 				exit(0);
 			} else {
 				#print { my_out() } "Skipping $filename, already imported\n";
-				exit(0); #already imported, yay
+				exit(0);				  #already imported, yay
 			}
 		}
 	}
@@ -579,7 +585,7 @@ sub child_main {
 			$g_dbh->pg_putcopydata($a);
 		}
 		$g_dbh->pg_putcopyend();
-		$g_dbh->commit;				  #release lock
+		$g_dbh->commit;			  #release lock
 	};
 	if ($@) {
 		unlock(0);
@@ -588,7 +594,7 @@ sub child_main {
 	unlock(0);
 
 	$0 = "$rootfn bucket processing\0";
-	process_buckets();
+	#process_buckets();
 
 	$g_pass_data[1]{rows} = $g_pass_data[0]{rows};
 	$g_pass_data[1]{text_messages} = $g_pass_data[0]{text_messages};
@@ -613,7 +619,7 @@ sub child_main {
 			$g_dbh->pg_putcopydata($a);
 		}
 		$g_dbh->pg_putcopyend();
-		$g_dbh->commit;				  #release lock
+		$g_dbh->commit;			  #release lock
 	};
 	if ($@) {
 		unlock(1);
@@ -678,6 +684,7 @@ sub child_main {
 		                  "CREATE TABLE bitcoin_cxn_messages${g_suffix} () INHERITS (bitcoin_cxn_messages)",
 		                  "CREATE TABLE bitcoin_messages${g_suffix} () INHERITS (bitcoin_messages)",
 		                  "CREATE TABLE bitcoin_message_payloads${g_suffix} () INHERITS (bitcoin_message_payloads)",
+		                  "CREATE TABLE address_mapping${g_suffix} () INHERITS (address_mapping)",
 		                 );
 		foreach my $s (@statements) {
 			$g_dbh->do($s);
@@ -778,6 +785,40 @@ sub child_main {
 
 		$g_dbh->commit;
 
+		$0 = "$rootfn doing final insert as select\0";
+		eval {
+			$g_dbh->do(qq|
+insert into address_mapping${g_suffix} (source_id, handle_id, remote_id)
+(SELECT m.source_id, cxnm.handle_id, cxnm.remote_id
+FROM messages${g_suffix} m
+JOIN bitcoin_cxn_messages${g_suffix} cxnm ON m.id = cxnm.message_id
+WHERE cxn_type_id in (1,2))|);
+
+			$0 = "$rootfn applying constraints to mapping\0";
+
+			$stmt = $g_dbh->prepare("select min(source_id), max(source_id) from address_mapping${g_suffix}");
+			$stmt->execute;
+			$min_max = $stmt->fetch;
+
+			$stmt = $g_dbh->prepare("alter table address_mapping${g_suffix} add constraint am_sidchk${g_suffix} CHECK (source_id >= ? and source_id <= ?)");
+			$stmt->execute($min_max->[0], $min_max->[1]);
+			my $sids = $min_max->[1] - $min_max->[0];
+
+			$stmt = $g_dbh->prepare("select min(handle_id), max(handle_id) from address_mapping${g_suffix}");
+			$stmt->execute;
+			$min_max = $stmt->fetch;
+
+			$stmt = $g_dbh->prepare("alter table address_mapping${g_suffix} add constraint am_hidchk${g_suffix} CHECK (handle_id >= ? and handle_id <= ?)");
+			$stmt->execute($min_max->[0], $min_max->[1]);
+
+			$g_dbh->do("CREATE INDEX am_handle_id${g_suffix} ON address_mapping${g_suffix}(handle_id)");
+			if ($sids > 1) {
+				$g_dbh->do("CREATE INDEX am_source_id${g_suffix} ON address_mapping${g_suffix}(source_id)");
+			}
+
+			$g_dbh->commit;
+		}; print $@ if $@;
+
 	}
 
 	close($IN);
@@ -787,6 +828,7 @@ sub child_main {
 		unlink("$_.$$.copy");
 	}
 }
+
 
 foreach my $filename (@ARGV) {
 	my $pid = fork();
@@ -804,7 +846,7 @@ my $pname = $0;
 my $succeeded = 0;
 $0 = "$pname Waiting on " . scalar(keys %g_pids) . " children\0";
 
-while(scalar(keys %g_pids)) {
+while (scalar(keys %g_pids)) {
 	my $cpid = wait;
 	if ($cpid > 0) {
 		delete $g_pids{$cpid};
@@ -820,31 +862,5 @@ while(scalar(keys %g_pids)) {
 	}
 }
 
-if ($succeeded) {
-	eval {
-		my $dbh = get_handle();
-		$0 = "$pname creating amv_tmp as select\0";
-		$dbh->do("create table address_mapping_v_tmp AS select * from address_mapping_live_v");
-		$0 = "$pname creating amv_tmp indices\0";
-		$dbh->do("create unique index on address_mapping_v_tmp (source_id, handle_id)");
-		$dbh->do("create index on address_mapping_v_tmp (source_id)");
-		$dbh->do("create index on address_mapping_v_tmp (handle_id)");
-		$0 = "$pname moving amv_tmp to amv\0";
-		$dbh->do("drop table address_mapping_v cascade");
-		$dbh->do("alter table address_mapping_v_tmp rename to address_mapping_v");
-		$g_dbh->do(q{
-CREATE VIEW bitcoin_message_extended_v AS
-SELECT m.source_id, m.timestamp, bt.handle_id, bt.is_sender, bt.command_id, c.command, p.payload, amv.remote_id, amv.address, amv.port
-FROM messages m
-JOIN bitcoin_messages bt ON m.id = bt.message_id
-JOIN commands c ON c.id = bt.command_id
-LEFT JOIN bitcoin_message_payloads p ON bt.id = p.bitcoin_msg_id
-JOIN address_mapping_v amv ON m.source_id = amv.source_id and bt.handle_id = amv.handle_id
-WHERE m.type_id = 32});
-
-		$dbh->commit;
-	};
-	print "$@\n" if ($@);
-}
 
 $g_sem->remove();
