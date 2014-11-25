@@ -89,6 +89,19 @@ CREATE TABLE addresses (
    UNIQUE(family, address, port)
 );
 
+CREATE OR REPLACE FUNCTION expand_addrid(IN arg int8, OUT family integer, OUT address inet, OUT port integer) 
+AS $$
+SELECT 
+foo.family,
+'0.0.0.0'::inet + ((bin & x'ff'::int8) << 24) + (((bin >> 8) & x'ff'::int8) << 16) + + (((bin >> 16) & x'ff'::int8) << 8) +  (((bin >> 24) & x'ff'::int8) << 0),
+foo.port
+FROM 
+   (SELECT ((arg & (x'ffff'::int))::bit(16))::int as port,
+     ( (   (arg >> 48) & (x'ffff'::int) )::bit(32) )::int as family,
+     ( (   (arg >> 16) & (x'ffffffff'::int) )::bit(32) )::int8 bin) as FOO
+$$ LANGUAGE SQL;
+
+
 CREATE RULE addresses_ignore_dupes AS
    ON INSERT TO addresses
    WHERE 
