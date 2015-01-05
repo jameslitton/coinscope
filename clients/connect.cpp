@@ -29,7 +29,6 @@
 using namespace std;
 using namespace ctrl::easy;
 
-
 int main(int argc, char *argv[]) {
 
 	if (argc == 2) {
@@ -46,28 +45,28 @@ int main(int argc, char *argv[]) {
 	mkdir(root.c_str(), 0777);
 	string client_dir(root + "clients/");
 	int bitcoin_client = unix_sock_client(client_dir + "bitcoin", false);
-	bcwatch watcher(bitcoin_client, 
-	                [](unique_ptr<struct bc_channel_msg> msg) {
+	bcwatchers::bcwatch watcher(bitcoin_client, 
+	                [](unique_ptr<bc_channel_msg> msg) {
 		                cout << "Successful connect. Details follow: " << endl;
 		                cout << "\tsource: " << msg->header.source_id << endl;
 		                cout << "\ttime: " << msg->header.timestamp << endl;
 		                cout << "\thandle_id: " << msg->handle_id << endl;
 		                cout << "\tupdate_type: " << msg->update_type << endl;
-		                cout << "\tremote: " << *((struct sockaddr*) &msg->remote) << endl;
-		                cout << "\tlocal: " << *((struct sockaddr*) &msg->local) << endl;
-		                cout << "\ttext_length: " << msg->text_length << endl;
-		                if (msg->text_length) {
+		                cout << "\tremote: " << *((struct sockaddr*) &msg->remote_addr) << endl;
+		                cout << "\tlocal: " << *((struct sockaddr*) &msg->local_addr) << endl;
+		                cout << "\ttext_length: " << msg->text_len << endl;
+		                if (msg->text_len) {
 			                cout << "\ttext: " << msg->text << endl;
 		                }
 	                },
-	                [](unique_ptr<struct bc_channel_msg> msg) {
+	                [](unique_ptr<bc_channel_msg> msg) {
 		                cout << "Unsuccessful connect. Details follow: " << endl;
 		                cout << "\tsource: " << msg->header.source_id << endl;
 		                cout << "\ttime: " << msg->header.timestamp << endl;
 		                cout << "\tupdate_type: " << msg->update_type << endl;
-		                cout << "\tremote: " << *((struct sockaddr*) &msg->remote) << endl;
-		                cout << "\ttext_length: " << msg->text_length << endl;
-		                if (msg->text_length) {
+		                cout << "\tremote: " << *((struct sockaddr*) &msg->remote_addr) << endl;
+		                cout << "\ttext_length: " << msg->text_len << endl;
+		                if (msg->text_len) {
 			                cout << "\ttext: " << msg->text << endl;
 		                }
 	                });
@@ -97,7 +96,7 @@ int main(int argc, char *argv[]) {
 
 	pair<wrapped_buffer<uint8_t>, size_t> p = message.serialize();
 
-	if (write(sock, p.first.ptr(), p.second) != p.second) {
+	if (write(sock, p.first.ptr(), p.second) != static_cast<ssize_t>(p.second)) {
 		perror("write");
 		return EXIT_FAILURE;
 	}

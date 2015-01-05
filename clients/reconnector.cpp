@@ -156,16 +156,16 @@ int main(int argc, char *argv[]) {
 	string client_dir(root + "clients/");
 	int bitcoin_client = unix_sock_client(client_dir + "bitcoin", false);
 
-	bcwatch watcher(bitcoin_client, 
-	                [](unique_ptr<struct bc_channel_msg> msg) {
+	bcwatchers::bcwatch watcher(bitcoin_client, 
+	                [](unique_ptr<bc_channel_msg> msg) {
 		                unique_lock<mutex> lck(g_connected_mux);
-		                g_connected[msg->remote] = true;
+		                g_connected[msg->remote_addr] = true;
 	                },
-	                [&](unique_ptr<struct bc_channel_msg> msg) {
+	                [&](unique_ptr<bc_channel_msg> msg) {
 		                bool do_connect = false;
 		                {
 			                unique_lock<mutex> lck(g_connected_mux);
-			                g_connected.erase(msg->remote);
+			                g_connected.erase(msg->remote_addr);
 		                }
 
 		                do_connect = msg->update_type & (CONNECT_FAILURE | ORDERLY_DISCONNECT| WRITE_DISCONNECT | PEER_RESET);
@@ -173,17 +173,17 @@ int main(int argc, char *argv[]) {
 			                do_connect = strcmp(msg->text, "Connection timed out") == 0;
 		                }
 		                if (do_connect) {
-			                size_t cnt = ++g_attempt_cnt[msg->remote];
+			                size_t cnt = ++g_attempt_cnt[msg->remote_addr];
 			                /* let's just suppose are slots are 0, 5, 10, 15 ... */
 			                if (cnt > 12) {
-				                g_attempt_cnt.erase(msg->remote); /* give up */
+				                g_attempt_cnt.erase(msg->remote_addr); /* give up */
 			                } else {
 				                uniform_int_distribution<> dis(0, cnt);
 				                uint8_t d = dis(g_gen);
 				                uint32_t wait = 5 * ((1 << d) - 1);
-				                cerr << "Waiting for " << msg->remote << " for " << wait << " seconds\n";
+				                cerr << "Waiting for " << msg->remote_addr << " for " << wait << " seconds\n";
 				                struct sockaddr_in remote;
-				                memcpy(&remote, &msg->remote, sizeof(remote));
+				                memcpy(&remote, &msg->remote_addr, sizeof(remote));
 				                {
 					                unique_lock<mutex> pending_lck(g_pending_mux);
 					                g_pending_connects.emplace(time(NULL) + wait, remote);

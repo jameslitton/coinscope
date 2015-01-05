@@ -37,35 +37,6 @@ using namespace std;
 
 //#define FIND_CXN
 
-struct bitcoin_log_format {
-	uint32_t source_id;
-	uint8_t type;
-	uint64_t timestamp;
-	uint32_t id ;
-	uint32_t update_type; //see above
-	sockaddr_in remote_addr;
-	sockaddr_in local_addr;
-	uint32_t text_len;
-	char text[0];
-} __attribute__((packed));
-
-struct bitcoin_msg_log_format {
-	uint32_t source_id;
-	uint8_t type;
-	uint64_t timestamp;
-	uint32_t id ;
-	uint8_t is_sender;
-	struct bitcoin::packed_message msg;
-} __attribute__((packed));
-
-bool is_private(uint32_t ip) {
-	/* endian assumptions live here */
-	return
-		(0x000000FF & ip) == 10  || (0x000000FF & ip) == 127  || 
-		(0x0000FFFF & ip) == (192 | (168 << 8)) ||
-		(0x0000F0FF & ip) == (172 | (16 << 8)); 
-}
-
 
 uint64_t g_time;
 set<sockaddr_in, sockaddr_cmp> g_to_connect;
@@ -92,7 +63,7 @@ void handle_message(const struct log_format *log) {
 		if ((update_type) & (CONNECT_SUCCESS | ACCEPT_SUCCESS)) {
 			do_insert(blf->remote_addr);
 		} else if (update_type & CONNECT_FAILURE) {
-			uint64_t fail_ts = ntoh(blf->timestamp);
+			uint64_t fail_ts = ntoh(blf->header.timestamp);
 			g_last_fail[blf->remote_addr] = fail_ts;
 			if (fail_ts > (g_time - TIMEOUT)) {
 				g_to_connect.erase(blf->remote_addr);

@@ -44,7 +44,7 @@ public:
 
 class bitcoin_msg : public message {
 public:
-	bitcoin_msg(uint8_t *payload, size_t payload_size) : message(BITCOIN_PACKED_MESSAGE, payload, payload_size) {}
+	bitcoin_msg(const uint8_t *payload, size_t payload_size) : message(BITCOIN_PACKED_MESSAGE, payload, payload_size) {}
 	bitcoin_msg(const std::vector<uint8_t> &payload, size_t payload_size) : message(BITCOIN_PACKED_MESSAGE, payload, payload_size) {}
 	bitcoin_msg(const wrapped_buffer<uint8_t> &contents) : message(contents) {}
 	bitcoin_msg(bitcoin_msg &&moved) : message(std::move(moved.buffer)) {}
@@ -93,6 +93,7 @@ public:
 
 	std::vector<uint32_t> targets() const;
 	void targets(const std::vector<uint32_t>&);
+	void targets(const uint32_t *targets, size_t cnt);
 
 	uint32_t message_id() const;
 	void message_id(uint32_t);

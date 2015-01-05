@@ -75,6 +75,7 @@ const uint8_t * bitcoin_msg::payload() const {
 	const struct ctrl::message *msg = (const struct ctrl::message *) buffer.const_ptr();
 	return msg->payload;
 }
+
 void bitcoin_msg::payload(const uint8_t *new_payload, size_t length) {
 	const struct ctrl::message *msg = (const struct ctrl::message *) buffer.const_ptr();
 	if (length != ntoh(msg->length)) {
@@ -152,11 +153,21 @@ vector<uint32_t> command_msg::targets() const {
 	}
 	return rv;
 }
+void command_msg::targets(const uint32_t *targets, size_t cnt) {
+	ctrl::message *msg = (ctrl::message*) buffer.ptr();
+	struct ctrl::command_msg *cmsg = (struct ctrl::command_msg*) msg->payload;
+	if (cnt == ntoh(cmsg->target_cnt)) { /* can do in place */
+		for(size_t i = 0; i < cnt; ++i) {
+			cmsg->targets[i] = hton(targets[i]);
+		}
+	} else {
+		command_msg newobj((enum commands)cmsg->command, ntoh(cmsg->message_id), targets, cnt);
+		*this = newobj;
+	}
+}
+
 void command_msg::targets(const std::vector<uint32_t> & targets) {
-	const ctrl::message *msg = (const ctrl::message*) buffer.ptr();
-	const struct ctrl::command_msg *cmsg = (const struct ctrl::command_msg*) msg->payload;
-	command_msg newobj((enum commands)cmsg->command, ntoh(cmsg->message_id), targets);
-	*this = newobj;
+	this->targets(targets.data(), targets.size());
 }
 
 uint32_t command_msg::message_id() const {

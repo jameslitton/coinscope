@@ -20,6 +20,7 @@ public:
 	size_t cursor() const;
 	bool hungry() const;
 	wrapped_buffer<uint8_t> extract_buffer();
+	const wrapped_buffer<uint8_t> extract_buffer() const;
 	/* Doesn't work for some reason :-( TODO: figure out why
 	operator const uint8_t*() const { return buffer_.const_ptr(); }
 	operator uint8_t*()  { return buffer_.ptr(); }
