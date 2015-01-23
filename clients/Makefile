@@ -14,7 +14,7 @@ connect_harvester: ../shared/bitcoin.o ../shared/network.o ../shared/crypto.o ..
 
 getaddr_wrapped: ../shared/bitcoin.o ../shared/network.o ../shared/crypto.o ../shared/config.o ../shared/logger.o ../shared/wrapped_buffer.o ../shared/alloc_buffer.o ../shared/mmap_buffer.o ../shared/write_buffer.o bcwatch.o ../shared/read_buffer.o ../shared/connector.o
 
-getaddr: ../shared/bitcoin.o ../shared/network.o ../shared/crypto.o ../shared/config.o ../shared/logger.o ../shared/wrapped_buffer.o ../shared/alloc_buffer.o ../shared/mmap_buffer.o ../shared/write_buffer.o bcwatch.o ../shared/read_buffer.o
+getaddr: ../shared/bitcoin.o ../shared/network.o ../shared/crypto.o ../shared/config.o ../shared/logger.o ../shared/wrapped_buffer.o ../shared/alloc_buffer.o ../shared/mmap_buffer.o ../shared/write_buffer.o bcwatch.o ../shared/read_buffer.o ../shared/connector.o
 
 kill_dupes: ../shared/bitcoin.o ../shared/network.o ../shared/crypto.o ../shared/config.o ../shared/logger.o ../shared/wrapped_buffer.o ../shared/alloc_buffer.o ../shared/mmap_buffer.o ../shared/write_buffer.o bcwatch.o ../shared/read_buffer.o
 

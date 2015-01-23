@@ -53,9 +53,55 @@ uint32_t g_msg_id; /* in host byte order */
    for a given address */
 map<struct sockaddr_in, uint32_t, sockaddr_cmp> g_known_addrs; /* sockaddr -> hid */
 
-map<uint32_t, hid_handler> g_known_hids; /* hid -> handler */
-map<struct sockaddr_in, cxn_handler> g_cxns;
+map<uint32_t, unique_ptr<hid_handler> > g_known_hids; /* hid -> handler */
+map<struct sockaddr_in, unique_ptr<cxn_handler>, sockaddr_cmp > g_cxns;
 
+
+void register_getaddr(int sock) {
+	/* register getaddr message */
+	unique_ptr<struct bitcoin::packed_message> getaddr(bitcoin::get_message("getaddr"));
+	ctrl::easy::bitcoin_msg msg((uint8_t*)getaddr.get(), sizeof(bitcoin::packed_message) + getaddr->length);
+
+	auto p = msg.serialize();
+	do_write(g_control, p.first.const_ptr(), p.second);
+
+	/* response is to send back a uint32_t in NBO and that's all */
+	if (recv(sock, &g_msg_id, sizeof(g_msg_id), MSG_WAITALL) != sizeof(g_msg_id)) {
+		perror("registration read");
+		abort();
+	}
+	g_msg_id = ntoh(g_msg_id);
+}
+
+void send_getaddrs(const vector<uint32_t> &handle_ids) {
+	if (handle_ids.size() == 0) {
+		return;
+	}
+
+	ctrl::easy::command_msg msg(COMMAND_SEND_MSG, g_msg_id, handle_ids);
+
+	auto p = msg.serialize();
+	do_write(g_control, p.first.const_ptr(), p.second);
+}
+
+
+/* just sends all pending getaddrs on a periodic basis. It's more
+   efficient to batch these a bit */
+class getaddr_pusher {
+public:
+	getaddr_pusher() : timer() {
+		timer.set<getaddr_pusher, &getaddr_pusher::timer_cb>(this);
+		timer.set(2, 2);
+		timer.start();
+	}
+	~getaddr_pusher() { timer.stop(); }
+	void timer_cb(ev::timer &, int ) {
+		send_getaddrs(g_pending_getaddrs);
+		g_pending_getaddrs.clear();
+	}
+private:
+	ev::timer timer;
+};
 
 
 
@@ -78,7 +124,7 @@ public:
 		timer.stop();
 	}
 
-	void timer_cb(ev::timer &w, int revents) {
+	void timer_cb(ev::timer &, int) {
 		ev::tstamp after = 10 + last_enqueue - ev::now(ev_default_loop());
 		if (after <= 0.0) { /* waiting period expired */
 			g_pending_getaddrs.push_back(hid);
@@ -121,106 +167,6 @@ private:
 	hid_handler & operator=(hid_handler &&other);
 };
 
-class bc_msg_handler {
-public:
-	bc_msg_handler(int fd) : read_queue(sizeof(uint32_t)), io(), reading_len(true) {
-		io.set<bc_msg_handler, &bc_msg_handler::io_cb>(this);
-		io.set(fd, ev::READ);
-		io.start();
-	}
-	void io_cb(ev::io &watcher, int revents) {
-
-		ssize_t r(1);
-		if (revents & ev::READ) {
-			while(r > 0 && read_queue.hungry()) {
-
-				pair<int,bool> res(read_queue.do_read(watcher.fd));
-				r = res.first;
-				if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN) { 
-					string e(strerror(errno));
-					g_log<ERROR>(e, "(getaddr)");
-					throw runtime_error(e);
-				}
-
-				if (r == 0) { /* got disconnected! */
-					/* LOG disconnect */
-					g_log<ERROR>("(getaddr)");
-					throw runtime_error("Lost connection to bc_msg handler");
-				}
-
-				if (read_queue.to_read() == 0) {
-					if (reading_len) {
-						uint32_t netlen = *((const uint32_t*) read_queue.extract_buffer().const_ptr());
-						read_queue.cursor(0);
-						read_queue.to_read(ntoh(netlen));
-						reading_len = false;
-					} else {
-
-						const struct bitcoin_msg_log_format *blog = (const struct bitcoin_msg_log_format*)read_queue.extract_buffer().const_ptr();
-						if (! blog->is_sender && strcmp(blog->msg.command, "addr") == 0) {
-							uint32_t handle_id = ntoh(blog->id);
-							uint8_t bits = 0;
-							uint64_t entries = bitcoin::get_varint(blog->msg.payload, &bits);
-							const struct bitcoin::full_packed_net_addr *addrs = (const struct bitcoin::full_packed_net_addr*) ((uint8_t*)blog->msg.payload + bits);
-							struct sockaddr_in to_insert;
-							bzero(&to_insert, sizeof(to_insert));
-
-							auto it = g_known_hids.find(handle_id);
-							if (it == g_known_hids.end()) {
-								g_log<ERROR>("Got address from hid ", handle_id, " but could not find hid handler for it");
-							} else {
-								it->second.enqueue();
-							}
-
-
-							for(size_t i = 0; i < entries; ++i) {
-
-								struct sockaddr_in to_insert;
-								bzero(&to_insert, sizeof(to_insert));
-								for(size_t i = 0; i < entries; ++i) {
-									if (!is_private(addrs[i].rest.addr.ipv4.as.number)) {
-										/* TODO: verify it is ipv4, since we don't support ipv6 */
-										memcpy(&to_insert.sin_addr, &addrs[i].rest.addr.ipv4.as.in_addr, sizeof(to_insert.sin_addr));
-										to_insert.sin_port = addrs[i].rest.port;
-										to_insert.sin_family = AF_INET;
-
-										auto it = g_known_addrs.find(to_insert);
-										if (it == g_known_addrs.end()) {
-											g_known_addrs.insert(make_pair(to_insert, (uint32_t)~0));
-										
-										}
-									
-									}
-								}
-							}
-
-						}
-						read_queue.cursor(0);
-						read_queue.to_read(4);
-						reading_len = true;
-
-					}
-					
-				}
-
-
-			}
-		}
-	}
-private:
-
-	void suicide() {
-	}
-
-
-	read_buffer read_queue;
-	ev::io io;
-	bool reading_len;
-	bc_msg_handler & operator=(bc_msg_handler other);
-	bc_msg_handler(const bc_msg_handler &);
-	bc_msg_handler(const bc_msg_handler &&other);
-	bc_msg_handler & operator=(bc_msg_handler &&other);
-};
 
 
 /* Essentially don't want to flap hard on some guy or
@@ -258,7 +204,7 @@ public:
 	}
 private:
 
-	void timer_cb(ev::timer &w, int revents) {
+	void timer_cb(ev::timer &, int ) {
 		if (pending_time > 0) { /* we are still pending, so we either want to expire our pending flag or reset the timer to check it out later */
 			ev::tstamp after = ev::now(ev_default_loop()) - (pending_time + 60*15);
 			if (after < 0.0) { /* for some reason, which is either a bug or the connector died or the logserver died...we didn't get the connect failed message and it's been 15 minutes. Just clear it */
@@ -323,39 +269,116 @@ private:
 
 };
 
+mt19937 cxn_handler::twister;
 
 
-
-
-
-
-
-void register_getaddr(int sock) {
-	/* register getaddr message */
-	unique_ptr<struct bitcoin::packed_message> getaddr(bitcoin::get_message("getaddr"));
-	ctrl::easy::bitcoin_msg msg((uint8_t*)getaddr.get(), sizeof(bitcoin::packed_message) + getaddr->length);
-
-	auto p = msg.serialize();
-	do_write(g_control, p.first.const_ptr(), p.second);
-
-	/* response is to send back a uint32_t in NBO and that's all */
-	if (recv(sock, &g_msg_id, sizeof(g_msg_id), MSG_WAITALL) != sizeof(g_msg_id)) {
-		perror("registration read");
-		abort();
-	}
-	g_msg_id = ntoh(g_msg_id);
-}
-
-void send_getaddrs(int fd, uint32_t *handle_ids, size_t handle_cnt) {
-	if (handle_cnt == 0) {
-		return;
+class bc_msg_handler {
+public:
+	bc_msg_handler(int fd) : read_queue(sizeof(uint32_t)), io(), reading_len(true) {
+		io.set<bc_msg_handler, &bc_msg_handler::io_cb>(this);
+		io.set(fd, ev::READ);
+		io.start();
 	}
 
-	ctrl::easy::command_msg msg(COMMAND_SEND_MSG, g_msg_id, handle_ids, handle_cnt);
+	~bc_msg_handler() {
+		if (io.fd >= 0) {
+			close(io.fd);
+		}
+		io.stop();
+		io.fd = -1;
+	}
 
-	auto p = msg.serialize();
-	do_write(fd, p.first.const_ptr(), p.second);
-}
+	void io_cb(ev::io &watcher, int revents) {
+
+		ssize_t r(1);
+		if (revents & ev::READ) {
+			while(r > 0 && read_queue.hungry()) {
+
+				pair<int,bool> res(read_queue.do_read(watcher.fd));
+				r = res.first;
+				if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN) { 
+					string e(strerror(errno));
+					g_log<ERROR>(e, "(getaddr)");
+					throw runtime_error(e);
+				}
+
+				if (r == 0) { /* got disconnected! */
+					/* LOG disconnect */
+					g_log<ERROR>("(getaddr)");
+					throw runtime_error("Lost connection to bc_msg handler");
+				}
+
+				if (read_queue.to_read() == 0) {
+					if (reading_len) {
+						uint32_t netlen = *((const uint32_t*) read_queue.extract_buffer().const_ptr());
+						read_queue.cursor(0);
+						read_queue.to_read(ntoh(netlen));
+						reading_len = false;
+					} else {
+
+						const struct bitcoin_msg_log_format *blog = (const struct bitcoin_msg_log_format*)read_queue.extract_buffer().const_ptr();
+						if (! blog->is_sender && strcmp(blog->msg.command, "addr") == 0) {
+							uint32_t handle_id = ntoh(blog->id);
+							uint8_t bits = 0;
+							uint64_t entries = bitcoin::get_varint(blog->msg.payload, &bits);
+							const struct bitcoin::full_packed_net_addr *addrs = (const struct bitcoin::full_packed_net_addr*) ((uint8_t*)blog->msg.payload + bits);
+							struct sockaddr_in to_insert;
+							bzero(&to_insert, sizeof(to_insert));
+
+							auto it = g_known_hids.find(handle_id);
+							if (it == g_known_hids.end()) {
+								g_log<ERROR>("Got address from hid ", handle_id, " but could not find hid handler for it");
+							} else {
+								it->second->enqueue();
+							}
+
+
+							for(size_t i = 0; i < entries; ++i) {
+
+								struct sockaddr_in to_insert;
+								bzero(&to_insert, sizeof(to_insert));
+								for(size_t i = 0; i < entries; ++i) {
+									if (!is_private(addrs[i].rest.addr.ipv4.as.number)) {
+										/* TODO: verify it is ipv4, since we don't support ipv6 */
+										memcpy(&to_insert.sin_addr, &addrs[i].rest.addr.ipv4.as.in_addr, sizeof(to_insert.sin_addr));
+										to_insert.sin_port = addrs[i].rest.port;
+										to_insert.sin_family = AF_INET;
+
+										auto it = g_known_addrs.find(to_insert);
+										if (it == g_known_addrs.end()) {
+											g_known_addrs.insert(make_pair(to_insert, ~0));
+											unique_ptr<cxn_handler> handler(new cxn_handler(&to_insert, cxn_handler::State::DISCONNECTED));
+											g_cxns.insert(make_pair(to_insert, move(handler)));
+										}
+									
+									}
+								}
+							}
+
+						}
+						read_queue.cursor(0);
+						read_queue.to_read(4);
+						reading_len = true;
+
+					}
+					
+				}
+
+
+			}
+		}
+	}
+private:
+
+	read_buffer read_queue;
+	ev::io io;
+	bool reading_len;
+	bc_msg_handler & operator=(bc_msg_handler other);
+	bc_msg_handler(const bc_msg_handler &);
+	bc_msg_handler(const bc_msg_handler &&other);
+	bc_msg_handler & operator=(bc_msg_handler &&other);
+};
+
 
 int main(int argc, char *argv[]) {
 
@@ -368,8 +391,8 @@ int main(int argc, char *argv[]) {
 	string root((const char*)cfg->lookup("logger.root"));
 	string client_dir = root + "clients/";
 
-	int bc_msg_client = unix_sock_client(client_dir + "bitcoin_msg", false);
-	int bc_client = unix_sock_client(client_dir + "bitcoin", false);
+	int bc_msg_client = unix_sock_client(client_dir + "bitcoin_msg", true);
+	int bc_client = unix_sock_client(client_dir + "bitcoin", true);
 	g_control = unix_sock_client((const char*)cfg->lookup("connector.control_path"), false);
 
 
@@ -377,38 +400,58 @@ int main(int argc, char *argv[]) {
 
 	get_all_cxn(g_control, [&](struct connection_info *info, size_t ) {
 			uint32_t hid = ntoh(info->handle_id);
-			g_known_addrs.insert(make_pair(info->remote_addr, hid));
+			struct sockaddr_in remote;
+			memcpy(&remote, &info->remote_addr, sizeof(remote)); /* due to packing */
+			g_known_addrs.insert(make_pair(remote, hid));
 			/* TODO: handle case where remote is incoming instead of outgoing */
-			g_cxns.insert(make_pair(info->remote_addr, cxn_handler(&info->remote_addr, cxn_handler::State::CONNECTED)));
-			g_known_hids.insert(make_pair(hid, hid_handler(hid, &info->remote_addr, &info->local_addr, false)));
+			unique_ptr<cxn_handler> handler(new cxn_handler(&info->remote_addr, cxn_handler::State::CONNECTED));
+			g_cxns.insert(make_pair(remote, move(handler)));
+			g_known_hids.insert(make_pair(hid, unique_ptr<hid_handler>(new hid_handler(hid, &info->remote_addr, &info->local_addr, false))));
 		});
 
-	bcwatchers::ev_handler watcher(bc_client,
-	                               [&](unique_ptr<bc_channel_msg> bc_msg) {
-		                               /* TODO: disconnect old connection if it somehow exists and log this */
-		                               /* TODO: handle case where remote is incoming instead of outgoing */
-		                               g_known_addrs[bc_msg->remote_addr] = bc_msg->handle_id;
-		                               auto it = g_cxns.find(bc_msg->remote_addr);
-		                               if (it == g_cxns.end()) {
-			                               g_cxns[bc_msg->remote_addr] = cxn_handler(&bc_msg->remote_addr, cxn_handler::State::CONNECTED);
-		                               } else {
-			                               it->second.state(cxn_handler::State::CONNECTED);
-		                               }
-		                               g_known_hids[bc_msg->handle_id] = hid_handler(bc_msg->handle_id, &bc_msg->remote_addr, &bc_msg->local_addr, false);
-	                               },
-	                               [&](unique_ptr<bc_channel_msg> bc_msg) {
-		                               g_known_addrs[bc_msg->remote_addr] = -1;
-		                               auto it = g_cxns.find(bc_msg->remote_addr);
-		                               if (it == g_cxns.end()) {
-			                               g_cxns.insert(make_pair(bc_msg->remote_addr, cxn_handler(&bc_msg->remote_addr, cxn_handler::State::DISCONNECTED)));
-		                               } else {
-			                               it->state(cxn_handler::State::DISCONNECTED);
-		                               }
-		                               g_known_hids.erase(bc_msg->handle_id);
+	bcwatchers::ev_handler
+		watcher(bc_client,
+		        [&](unique_ptr<bc_channel_msg> bc_msg) {
+			        /* TODO: disconnect old connection if it somehow exists and log this */
+			        /* TODO: handle case where remote is incoming instead of outgoing */
+			        struct sockaddr_in remote;
+			        memcpy(&remote, &bc_msg->remote_addr, sizeof(remote));
+			        uint32_t hid = bc_msg->handle_id;
 
-	                               });
+			        g_known_addrs[remote] = hid;
+			        auto it = g_cxns.find(remote);
+			        if (it == g_cxns.end()) {
+				        unique_ptr<cxn_handler> handler(new cxn_handler(&remote, cxn_handler::State::CONNECTED));
+				        g_cxns.insert(make_pair(remote, move(handler)));
+			        } else {
+				        it->second->state(cxn_handler::State::CONNECTED);
+			        }
+			        if (g_known_hids.erase(hid) > 0) {
+				        g_log<DEBUG>("Received a hid more than once? ", hid);
+			        }
+			        unique_ptr<hid_handler> handler(new hid_handler(hid, &remote, &bc_msg->local_addr, false));
+			        g_known_hids.insert(make_pair(hid, move(handler)));
+		        },
+		        [&](unique_ptr<bc_channel_msg> bc_msg) {
+			        struct sockaddr_in remote;
+			        memcpy(&remote, &bc_msg->remote_addr, sizeof(remote));
+			        g_known_addrs[remote] = ~0;
+			        auto it = g_cxns.find(remote);
+			        if (it == g_cxns.end()) {
+				        g_log<DEBUG>("Somehow we got a disconnect for a connection we did not know about to ", remote);
+				        unique_ptr<cxn_handler> handler(new cxn_handler(&remote, cxn_handler::State::DISCONNECTED));
+				        g_cxns.insert(make_pair(remote, move(handler)));
+			        } else {
+				        it->second->state(cxn_handler::State::DISCONNECTED);
+			        }
+			        g_known_hids.erase(bc_msg->handle_id);
+
+		        },
+		        [](const bcwatchers::ev_handler *) {}
+		        );
 
 	bc_msg_handler addr_handler(bc_msg_client);
+	getaddr_pusher pusher();
 
 	signal(SIGPIPE, SIG_IGN);
 
