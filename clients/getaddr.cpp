@@ -42,7 +42,7 @@ class cxn_handler;
 class hid_handler;
 
 
-
+uint32_t g_current_getaddr(1); /* identifier for current running getaddr */
 int g_control; /* control socket */
 vector<uint32_t> g_pending_getaddrs; /* hids to getaddr in the next "round" */
 uint32_t g_msg_id; /* in host byte order */
@@ -77,7 +77,6 @@ void send_getaddrs(const vector<uint32_t> &handle_ids) {
 	if (handle_ids.size() == 0) {
 		return;
 	}
-
 	ctrl::easy::command_msg msg(COMMAND_SEND_MSG, g_msg_id, handle_ids);
 
 	auto p = msg.serialize();
@@ -94,6 +93,7 @@ public:
 		timer.set(2, 2);
 		timer.start();
 	}
+
 	~getaddr_pusher() { timer.stop(); }
 	void timer_cb(ev::timer &, int ) {
 		send_getaddrs(g_pending_getaddrs);
@@ -110,14 +110,11 @@ private:
    enqueue another one resets its queue time */
 class hid_handler { 
 public:
-	hid_handler(uint32_t hid_, const struct sockaddr_in *remote_, const struct sockaddr_in *local_, bool enqueue_ = true)
-		: hid(hid_), timer(), last_enqueue() {
+	hid_handler(uint32_t hid_, const struct sockaddr_in *remote_, const struct sockaddr_in *local_)
+		: hid(hid_), timer(), last_enqueue(), getaddr_seq(0), getaddr_cnt(0) {
 		memcpy(&remote, remote_, sizeof(remote));
 		memcpy(&local, local_, sizeof(local));
 		timer.set<hid_handler, &hid_handler::timer_cb>(this);
-		if (enqueue_) {
-			enqueue();
-		}
 	}
 
 	~hid_handler() {
@@ -127,11 +124,26 @@ public:
 	void timer_cb(ev::timer &, int) {
 		ev::tstamp after = 10 + last_enqueue - ev::now(ev_default_loop());
 		if (after <= 0.0) { /* waiting period expired */
-			g_pending_getaddrs.push_back(hid);
+			if (
+#ifdef DO_CRON
+			    getaddr_seq == g_current_getaddr &&
+#endif
+			    getaddr_cnt < 24) { /* if we are no longer in an active getaddr, skip it */
+				++getaddr_cnt;
+				g_pending_getaddrs.push_back(hid);
+
+			}
 		} else {
 			timer.stop();
 			timer.set(after);
 			timer.start();
+		}
+	}
+
+	void set_sequence(uint32_t s) {
+		if (s != getaddr_seq) {
+			getaddr_seq = s;
+			getaddr_cnt = 0; /* reset count if this is a new getaddr sequence */
 		}
 	}
 
@@ -160,6 +172,8 @@ private:
 	struct sockaddr_in local;
 	ev::timer timer;
 	ev::tstamp last_enqueue;
+	uint32_t getaddr_seq;
+	uint32_t getaddr_cnt;
 
 	hid_handler & operator=(hid_handler other);
 	hid_handler(const hid_handler &);
@@ -391,6 +405,36 @@ int main(int argc, char *argv[]) {
 	string root((const char*)cfg->lookup("logger.root"));
 	string client_dir = root + "clients/";
 
+#ifdef DO_CRON
+	vector<int> hours;
+	vector<int> minutes;
+	libconfig::Setting &hoursList = cfg->lookup("getaddr.schedule.hours");
+	for(int index = 0; index < hoursList.getLength(); ++index) {
+		hours.push_back(hoursList[index]);
+	}
+
+	libconfig::Setting &minutesList = cfg->lookup("getaddr.schedule.minutes");
+	for(int index = 0; index < minutesList.getLength(); ++index) {
+		minutes.push_back(minutesList[index]);
+	}
+
+	time_t now = time(NULL);
+	struct tm timeinfo = *localtime(&now);
+
+	for(auto h : hours) {
+		timeinfo.tm_hour = h;
+		for (auto m : minutes) {
+			timeinfo.tm_min = m;
+			cout << h << ':' << m << endl;
+			time_t when = mktime(&timeinfo);
+			cout << "UNIX: " << ((when - now) / (60*60)) << ':' << ((when-now) / 60) << endl;
+			cout << "ASCTIME: " << asctime(&timeinfo) << endl;
+		}
+	}
+#endif
+	
+
+
 	int bc_msg_client = unix_sock_client(client_dir + "bitcoin_msg", true);
 	int bc_client = unix_sock_client(client_dir + "bitcoin", true);
 	g_control = unix_sock_client((const char*)cfg->lookup("connector.control_path"), false);
@@ -406,7 +450,7 @@ int main(int argc, char *argv[]) {
 			/* TODO: handle case where remote is incoming instead of outgoing */
 			unique_ptr<cxn_handler> handler(new cxn_handler(&info->remote_addr, cxn_handler::State::CONNECTED));
 			g_cxns.insert(make_pair(remote, move(handler)));
-			g_known_hids.insert(make_pair(hid, unique_ptr<hid_handler>(new hid_handler(hid, &info->remote_addr, &info->local_addr, false))));
+			g_known_hids.insert(make_pair(hid, unique_ptr<hid_handler>(new hid_handler(hid, &info->remote_addr, &info->local_addr))));
 		});
 
 	bcwatchers::ev_handler
@@ -429,7 +473,7 @@ int main(int argc, char *argv[]) {
 			        if (g_known_hids.erase(hid) > 0) {
 				        g_log<DEBUG>("Received a hid more than once? ", hid);
 			        }
-			        unique_ptr<hid_handler> handler(new hid_handler(hid, &remote, &bc_msg->local_addr, false));
+			        unique_ptr<hid_handler> handler(new hid_handler(hid, &remote, &bc_msg->local_addr));
 			        g_known_hids.insert(make_pair(hid, move(handler)));
 		        },
 		        [&](unique_ptr<bc_channel_msg> bc_msg) {
@@ -450,13 +494,18 @@ int main(int argc, char *argv[]) {
 		        [](const bcwatchers::ev_handler *) {}
 		        );
 
-	bc_msg_handler addr_handler(bc_msg_client);
-	getaddr_pusher pusher();
-
 	signal(SIGPIPE, SIG_IGN);
 
 	ev::default_loop loop;
+	bc_msg_handler addr_handler(bc_msg_client);
+	getaddr_pusher pusher;
 
+#ifndef DO_CRON
+	send_getaddrs({ctrl::BROADCAST_TARGET});
+	for(auto &p : g_known_hids) {
+		p.second->enqueue();
+	}
+#endif
 	while(true) {
 		cout << "Restarting loop\n";
 		loop.run();
