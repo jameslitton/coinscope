@@ -20,6 +20,7 @@ enum log_type {
 	BITCOIN=0x10, /* general status information about bitcoin connections, buffered */
 	BITCOIN_MSG=0x20, /* actual incoming/outgoing messages as encoded, buffered */
 	CONNECTOR=0x40, /* connector status messages, unbuffered */
+	CLIENT=0x80, /* client status messages, unbuffered */
 };
 
 

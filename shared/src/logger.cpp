@@ -75,7 +75,7 @@ template <> void g_log<BITCOIN>(uint32_t update_type, uint32_t handle_id, const 
 	size_t len = 1 + sizeof(net_time) + sizeof(handle_id) + sizeof(update_type) +
 		2*sizeof(remote) + sizeof(text_len) + text_len;
 
-	if (len + 4 > g_log_store.allocated() - g_log_cursor) {
+	if (store_size == 1 || len + 4 > g_log_store.allocated() - g_log_cursor) {
 		if (g_log_cursor > 0) { /* yes, may conceivably just want to grow buffer for sufficiently small cursors... */
 			append_buf(g_log_store, g_log_cursor);
 		}
@@ -241,8 +241,11 @@ string type_to_str(enum log_type type) {
 	case CONNECTOR:
 		return "CONNECTOR";
 		break;
+	case CLIENT:
+		return "CLIENT";
+		break;
 	default:
-		return "huh?";
+		return "UNKNOWN";
 		break;
 	};
 }

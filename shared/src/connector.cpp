@@ -120,12 +120,12 @@ command_msg::command_msg(enum commands a_command, uint32_t a_message_id, const u
 	ctrl::message *msg = (ctrl::message *)buffer.ptr();
 	msg->version = 0;
 	msg->message_type = COMMAND;
-	msg->length = hton((uint32_t)sizeof(ctrl::command_msg) + 4 * a_target_cnt);
+	msg->length = hton((uint32_t)(sizeof(ctrl::command_msg) + 4 * a_target_cnt));
 	struct ctrl::command_msg *cmsg = (struct ctrl::command_msg*) msg->payload;
 	cmsg->command = a_command;
 	cmsg->message_id = hton(a_message_id);
 	memcpy(cmsg->targets, a_targets, a_target_cnt * 4);
-	cmsg->target_cnt = ntoh((uint32_t)a_target_cnt);
+	cmsg->target_cnt = hton((uint32_t)a_target_cnt);
 }
 command_msg::command_msg(enum commands command, uint32_t message_id /* host byte order */, const std::vector<uint32_t> &targets) 
 	: command_msg(command, message_id, targets.data(), targets.size()) {

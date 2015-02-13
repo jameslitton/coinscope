@@ -33,6 +33,12 @@
 #include "read_buffer.hpp"
 #include "lib.hpp"
 #include "bcwatch.hpp"
+#include "netwrap.hpp"
+
+//#define DO_CRON
+//#define HARVEST_CXN
+
+#define GETADDR_LIMIT 24
 
 
 using namespace std;
@@ -77,6 +83,7 @@ void send_getaddrs(const vector<uint32_t> &handle_ids) {
 	if (handle_ids.size() == 0) {
 		return;
 	}
+
 	ctrl::easy::command_msg msg(COMMAND_SEND_MSG, g_msg_id, handle_ids);
 
 	auto p = msg.serialize();
@@ -128,7 +135,7 @@ public:
 #ifdef DO_CRON
 			    getaddr_seq == g_current_getaddr &&
 #endif
-			    getaddr_cnt < 24) { /* if we are no longer in an active getaddr, skip it */
+			    getaddr_cnt < GETADDR_LIMIT) { /* if we are no longer in an active getaddr, skip it */
 				++getaddr_cnt;
 				g_pending_getaddrs.push_back(hid);
 
@@ -333,9 +340,6 @@ public:
 						const struct bitcoin_msg_log_format *blog = (const struct bitcoin_msg_log_format*)read_queue.extract_buffer().const_ptr();
 						if (! blog->is_sender && strcmp(blog->msg.command, "addr") == 0) {
 							uint32_t handle_id = ntoh(blog->id);
-							uint8_t bits = 0;
-							uint64_t entries = bitcoin::get_varint(blog->msg.payload, &bits);
-							const struct bitcoin::full_packed_net_addr *addrs = (const struct bitcoin::full_packed_net_addr*) ((uint8_t*)blog->msg.payload + bits);
 							struct sockaddr_in to_insert;
 							bzero(&to_insert, sizeof(to_insert));
 
@@ -346,6 +350,12 @@ public:
 								it->second->enqueue();
 							}
 
+
+#ifdef HARVEST_CXN
+
+							uint8_t bits = 0;
+							uint64_t entries = bitcoin::get_varint(blog->msg.payload, &bits);
+							const struct bitcoin::full_packed_net_addr *addrs = (const struct bitcoin::full_packed_net_addr*) ((uint8_t*)blog->msg.payload + bits);
 
 							for(size_t i = 0; i < entries; ++i) {
 
@@ -368,6 +378,7 @@ public:
 									}
 								}
 							}
+#endif
 
 						}
 						read_queue.cursor(0);
@@ -394,20 +405,14 @@ private:
 };
 
 
-int main(int argc, char *argv[]) {
-
-	if (startup_setup(argc, argv)) {
-		return EXIT_FAILURE;
-	}
-
-	const libconfig::Config *cfg(get_config());
-
-	string root((const char*)cfg->lookup("logger.root"));
-	string client_dir = root + "clients/";
-
 #ifdef DO_CRON
+
+time_t next_getaddr() {
+	time_t next(0);
 	vector<int> hours;
 	vector<int> minutes;
+	const libconfig::Config *cfg(get_config());
+
 	libconfig::Setting &hoursList = cfg->lookup("getaddr.schedule.hours");
 	for(int index = 0; index < hoursList.getLength(); ++index) {
 		hours.push_back(hoursList[index]);
@@ -419,22 +424,52 @@ int main(int argc, char *argv[]) {
 	}
 
 	time_t now = time(NULL);
-	struct tm timeinfo = *localtime(&now);
-
-	for(auto h : hours) {
-		timeinfo.tm_hour = h;
-		for (auto m : minutes) {
-			timeinfo.tm_min = m;
-			cout << h << ':' << m << endl;
-			time_t when = mktime(&timeinfo);
-			cout << "UNIX: " << ((when - now) / (60*60)) << ':' << ((when-now) / 60) << endl;
-			cout << "ASCTIME: " << asctime(&timeinfo) << endl;
+	for(time_t base = time(NULL); next == 0; base += 86400) {
+		struct tm timeinfo = *localtime(&base);
+		for(auto h : hours) {
+			timeinfo.tm_hour = h;
+			for (auto m : minutes) {
+				timeinfo.tm_min = m;
+				cout << h << ':' << m << endl;
+				time_t when = mktime(&timeinfo);
+				if (next == 0 && when - base > 0) {
+					next = when;
+				}
+			}
 		}
 	}
+
+	struct tm timeinfo = *localtime(&next);
+	cout << "UNIX: " << ((next - now) / (60*60)) << ':' << ((((next/360)*360)-now) / 60) << endl;
+	cout << "ASCTIME: " << asctime(&timeinfo) << endl;
+	return next;
+
+}
+
 #endif
+
+
+
+int main(int argc, char *argv[]) {
+
+	if (startup_setup(argc, argv)) {
+		return EXIT_FAILURE;
+	}
+
+	const libconfig::Config *cfg(get_config());
+
+	string root((const char*)cfg->lookup("logger.root"));
+	string client_dir = root + "clients/";
+
+	string logpath = root + "servers";
+	try {
+		g_log_buffer = new log_buffer(unix_sock_client(logpath, true));
+	} catch (const network_error &e) {
+		cerr << "WARNING: Could not connect to log server! " << e.what() << endl;
+	}
+
+
 	
-
-
 	int bc_msg_client = unix_sock_client(client_dir + "bitcoin_msg", true);
 	int bc_client = unix_sock_client(client_dir + "bitcoin", true);
 	g_control = unix_sock_client((const char*)cfg->lookup("connector.control_path"), false);
@@ -501,10 +536,10 @@ int main(int argc, char *argv[]) {
 	getaddr_pusher pusher;
 
 #ifndef DO_CRON
-	send_getaddrs({ctrl::BROADCAST_TARGET});
-	for(auto &p : g_known_hids) {
-		p.second->enqueue();
-	}
+	g_log<CLIENT>("Initiating getaddr");
+	g_pending_getaddrs.push_back(ctrl::BROADCAST_TARGET);
+#else
+	time_t next = next_getaddr();
 #endif
 	while(true) {
 		cout << "Restarting loop\n";
