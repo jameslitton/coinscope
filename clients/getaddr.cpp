@@ -423,7 +423,7 @@ void clock_cb (struct ev_loop *, ev_periodic *, int) {
 	++g_current_getaddr;
 	g_getaddr_start = ev::now(ev_default_loop());
 
-	g_log<CLIENT>("Initiating getaddr");
+	g_log<CLIENT>("Initiating GETADDR probe");
 	for(auto &p : g_known_hids) {
 		p.second->set_sequence(g_current_getaddr);
 	}
