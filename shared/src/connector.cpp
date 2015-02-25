@@ -124,7 +124,9 @@ command_msg::command_msg(enum commands a_command, uint32_t a_message_id, const u
 	struct ctrl::command_msg *cmsg = (struct ctrl::command_msg*) msg->payload;
 	cmsg->command = a_command;
 	cmsg->message_id = hton(a_message_id);
-	memcpy(cmsg->targets, a_targets, a_target_cnt * 4);
+	for(size_t i = 0; i < a_target_cnt; ++i) {
+		cmsg->targets[i] = hton(a_targets[i]);
+	}
 	cmsg->target_cnt = hton((uint32_t)a_target_cnt);
 }
 command_msg::command_msg(enum commands command, uint32_t message_id /* host byte order */, const std::vector<uint32_t> &targets) 

@@ -235,7 +235,7 @@ private:
 
 	void timer_cb(ev::timer &, int ) {
 		if (pending_time > 0) { /* we are still pending, so we either want to expire our pending flag or reset the timer to check it out later */
-			ev::tstamp after = ev::now(ev_default_loop()) - (pending_time + 60*15);
+			ev::tstamp after = (pending_time + 60*15) - ev::now(ev_default_loop());
 			if (after < 0.0) { /* for some reason, which is either a bug or the connector died or the logserver died...we didn't get the connect failed message and it's been 15 minutes. Just clear it */
 				pending_time = 0;
 				if (state_ == CONNECTING) {
@@ -247,7 +247,6 @@ private:
 			}
 			
 		}
-
 		if (pending_time == 0) {
 			switch(state_) {
 			case CONNECTING:
@@ -262,6 +261,7 @@ private:
 				}
 				break;
 			case DISCONNECTED:
+				state_ = CONNECTING;
 				do_write(g_control, sers.first.const_ptr(), sers.second);
 				pending_time = ev::now(ev_default_loop());
 				consecutive_fails = min((size_t)14, consecutive_fails+1);;
@@ -287,6 +287,7 @@ private:
 	size_t consecutive_fails;
 	pair<wrapped_buffer<uint8_t>, size_t> sers;
 	ev::timer timer;
+
 
 	static mt19937 twister;
 
@@ -483,7 +484,11 @@ time_t next_getaddr(time_t now) {
 }
 
 ev_tstamp next_getaddr(struct ev_periodic *, ev_tstamp now) {
-	return next_getaddr((time_t)now);
+
+	time_t rv = next_getaddr((time_t)now);
+	struct tm timeinfo = *localtime(&rv);
+	cout << "Scheduling next event for " << asctime(&timeinfo);
+	return rv;
 }
 
 
@@ -574,6 +579,7 @@ int main(int argc, char *argv[]) {
 			        g_known_hids.insert(make_pair(hid, move(handler)));
 		        },
 		        [&](unique_ptr<bc_channel_msg> bc_msg) {
+			        uint32_t hid = bc_msg->handle_id;
 			        struct sockaddr_in remote;
 			        memcpy(&remote, &bc_msg->remote_addr, sizeof(remote));
 			        g_known_addrs[remote] = ~0;
@@ -585,7 +591,7 @@ int main(int argc, char *argv[]) {
 			        } else {
 				        it->second->state(cxn_handler::State::DISCONNECTED);
 			        }
-			        g_known_hids.erase(bc_msg->handle_id);
+			        g_known_hids.erase(hid);
 
 		        },
 		        [](const bcwatchers::ev_handler *) {}
@@ -597,16 +603,19 @@ int main(int argc, char *argv[]) {
 	bc_msg_handler addr_handler(bc_msg_client);
 	getaddr_pusher pusher;
 
-#ifndef DO_CRON
-	g_log<CLIENT>("Initiating getaddr");
-	g_pending_getaddrs.push_back(ctrl::BROADCAST_TARGET);
-#else
+#ifdef DO_CRON
+
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 		ev_periodic timer;
 		ev_periodic_init(&timer, clock_cb, 0, 0, next_getaddr);
 		ev_periodic_start(ev_default_loop(0), &timer);
 #pragma GCC diagnostic warning "-Wstrict-aliasing"
-		
+
+#else
+
+		g_log<CLIENT>("Initiating getaddr");
+		g_pending_getaddrs.push_back(ctrl::BROADCAST_TARGET);
+
 #endif
 
 
