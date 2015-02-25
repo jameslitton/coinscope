@@ -35,8 +35,8 @@
 #include "bcwatch.hpp"
 #include "netwrap.hpp"
 
-//#define DO_CRON
-//#define HARVEST_CXN
+#define DO_CRON
+#define HARVEST_CXN
 
 #define GETADDR_LIMIT 24
 
@@ -49,6 +49,9 @@ class hid_handler;
 
 
 uint32_t g_current_getaddr(1); /* identifier for current running getaddr */
+
+ev_tstamp g_getaddr_start = 0;
+
 int g_control; /* control socket */
 vector<uint32_t> g_pending_getaddrs; /* hids to getaddr in the next "round" */
 uint32_t g_msg_id; /* in host byte order */
@@ -118,10 +121,15 @@ private:
 class hid_handler { 
 public:
 	hid_handler(uint32_t hid_, const struct sockaddr_in *remote_, const struct sockaddr_in *local_)
-		: hid(hid_), timer(), last_enqueue(), getaddr_seq(0), getaddr_cnt(0) {
+		: hid(hid_), remote(), local(), timer(), last_enqueue(), getaddr_seq(g_current_getaddr), getaddr_cnt(0) {
 		memcpy(&remote, remote_, sizeof(remote));
 		memcpy(&local, local_, sizeof(local));
 		timer.set<hid_handler, &hid_handler::timer_cb>(this);
+
+		/* any new connections within 10 minutes should be part of the experiment */
+		if ( (ev::now(ev_default_loop()) - g_getaddr_start) < 600) { 
+			enqueue();
+		}
 	}
 
 	~hid_handler() {
@@ -197,7 +205,7 @@ class cxn_handler { /* keep state for ongoing connection attempts/harvesting. Ti
 public:
 
 	enum State { DISCONNECTED, CONNECTING, CONNECTED };
-	cxn_handler(const struct sockaddr_in *remote_, State s = DISCONNECTED) : state_(s), pending_time(0), consecutive_fails(0), timer() {
+	cxn_handler(const struct sockaddr_in *remote_, State s = DISCONNECTED) : state_(s), pending_time(0), consecutive_fails(0), sers(), timer() {
 		static sockaddr_in local_addr; /* TODO: if this ever matters, fix it. curse of the API */
 		ctrl::easy::connect_msg msg(remote_, &local_addr);
 		sers = msg.serialize();
@@ -407,7 +415,39 @@ private:
 
 #ifdef DO_CRON
 
-time_t next_getaddr() {
+set<struct sockaddr_in, sockaddr_cmp> g_bound_addrs;
+
+
+void clock_cb (struct ev_loop *, ev_periodic *, int) {
+	++g_current_getaddr;
+	g_getaddr_start = ev::now(ev_default_loop());
+
+	g_log<CLIENT>("Initiating getaddr");
+	for(auto &p : g_known_hids) {
+		p.second->set_sequence(g_current_getaddr);
+	}
+
+
+	vector<uint32_t> hids;
+
+	for(auto &h: g_known_hids) {
+
+		/* infer if inbound */		
+		const struct sockaddr_in *local = h.second->get_local();
+		if (g_bound_addrs.find(*local) == g_bound_addrs.end()) { /* not on a bound address, so must be an ephemeral port, i.e., outbound connection */
+			hids.push_back(h.first);
+		}
+	}
+
+	if (hids.size()) {
+		ctrl::easy::command_msg msg(COMMAND_DISCONNECT, 0, hids);
+		auto p = msg.serialize();
+		do_write(g_control, p.first.const_ptr(), p.second);
+	}
+
+}
+
+time_t next_getaddr(time_t now) {
 	time_t next(0);
 	vector<int> hours;
 	vector<int> minutes;
@@ -423,31 +463,33 @@ time_t next_getaddr() {
 		minutes.push_back(minutesList[index]);
 	}
 
-	time_t now = time(NULL);
 	for(time_t base = time(NULL); next == 0; base += 86400) {
 		struct tm timeinfo = *localtime(&base);
 		for(auto h : hours) {
 			timeinfo.tm_hour = h;
 			for (auto m : minutes) {
 				timeinfo.tm_min = m;
-				cout << h << ':' << m << endl;
 				time_t when = mktime(&timeinfo);
-				if (next == 0 && when - base > 0) {
+				if (next == 0 && when - now > 0) {
 					next = when;
+					return next;
 				}
 			}
 		}
 	}
 
-	struct tm timeinfo = *localtime(&next);
-	cout << "UNIX: " << ((next - now) / (60*60)) << ':' << ((((next/360)*360)-now) / 60) << endl;
-	cout << "ASCTIME: " << asctime(&timeinfo) << endl;
 	return next;
 
 }
 
-#endif
+ev_tstamp next_getaddr(struct ev_periodic *, ev_tstamp now) {
+	return next_getaddr((time_t)now);
+}
 
+
+
+
+#endif
 
 
 int main(int argc, char *argv[]) {
@@ -457,6 +499,26 @@ int main(int argc, char *argv[]) {
 	}
 
 	const libconfig::Config *cfg(get_config());
+
+	libconfig::Setting &list = cfg->lookup("connector.bitcoin.listeners");
+	for(int index = 0; index < list.getLength(); ++index) {
+		libconfig::Setting &setting = list[index];
+		string family((const char*)setting[0]);
+		string ipv4((const char*)setting[1]);
+		uint16_t port((int)setting[2]);
+		struct sockaddr_in bound_addr;
+		bzero(&bound_addr, sizeof(bound_addr));
+		bound_addr.sin_family = AF_INET;
+		bound_addr.sin_port = htons(port);
+		if (inet_pton(AF_INET, ipv4.c_str(), &bound_addr.sin_addr) != 1) {
+			cerr << "Bad address format on address " <<  index << ": " << strerror(errno) << endl;
+			abort();
+		}
+		g_bound_addrs.insert(bound_addr);
+	}
+
+
+
 
 	string root((const char*)cfg->lookup("logger.root"));
 	string client_dir = root + "clients/";
@@ -539,10 +601,17 @@ int main(int argc, char *argv[]) {
 	g_log<CLIENT>("Initiating getaddr");
 	g_pending_getaddrs.push_back(ctrl::BROADCAST_TARGET);
 #else
-	time_t next = next_getaddr();
+#pragma GCC diagnostic ignored "-Wstrict-aliasing"
+		ev_periodic timer;
+		ev_periodic_init(&timer, clock_cb, 0, 0, next_getaddr);
+		ev_periodic_start(ev_default_loop(0), &timer);
+#pragma GCC diagnostic warning "-Wstrict-aliasing"
+		
 #endif
+
+
 	while(true) {
-		cout << "Restarting loop\n";
+		cout << "Starting loop\n";
 		loop.run();
 	}
 
