@@ -75,6 +75,7 @@ const uint8_t * bitcoin_msg::payload() const {
 	const struct ctrl::message *msg = (const struct ctrl::message *) buffer.const_ptr();
 	return msg->payload;
 }
+
 void bitcoin_msg::payload(const uint8_t *new_payload, size_t length) {
 	const struct ctrl::message *msg = (const struct ctrl::message *) buffer.const_ptr();
 	if (length != ntoh(msg->length)) {
@@ -119,12 +120,14 @@ command_msg::command_msg(enum commands a_command, uint32_t a_message_id, const u
 	ctrl::message *msg = (ctrl::message *)buffer.ptr();
 	msg->version = 0;
 	msg->message_type = COMMAND;
-	msg->length = hton((uint32_t)sizeof(ctrl::command_msg) + 4 * a_target_cnt);
+	msg->length = hton((uint32_t)(sizeof(ctrl::command_msg) + 4 * a_target_cnt));
 	struct ctrl::command_msg *cmsg = (struct ctrl::command_msg*) msg->payload;
 	cmsg->command = a_command;
 	cmsg->message_id = hton(a_message_id);
-	memcpy(cmsg->targets, a_targets, a_target_cnt * 4);
-	cmsg->target_cnt = ntoh((uint32_t)a_target_cnt);
+	for(size_t i = 0; i < a_target_cnt; ++i) {
+		cmsg->targets[i] = hton(a_targets[i]);
+	}
+	cmsg->target_cnt = hton((uint32_t)a_target_cnt);
 }
 command_msg::command_msg(enum commands command, uint32_t message_id /* host byte order */, const std::vector<uint32_t> &targets) 
 	: command_msg(command, message_id, targets.data(), targets.size()) {
@@ -152,11 +155,21 @@ vector<uint32_t> command_msg::targets() const {
 	}
 	return rv;
 }
+void command_msg::targets(const uint32_t *targets, size_t cnt) {
+	ctrl::message *msg = (ctrl::message*) buffer.ptr();
+	struct ctrl::command_msg *cmsg = (struct ctrl::command_msg*) msg->payload;
+	if (cnt == ntoh(cmsg->target_cnt)) { /* can do in place */
+		for(size_t i = 0; i < cnt; ++i) {
+			cmsg->targets[i] = hton(targets[i]);
+		}
+	} else {
+		command_msg newobj((enum commands)cmsg->command, ntoh(cmsg->message_id), targets, cnt);
+		*this = newobj;
+	}
+}
+
 void command_msg::targets(const std::vector<uint32_t> & targets) {
-	const ctrl::message *msg = (const ctrl::message*) buffer.ptr();
-	const struct ctrl::command_msg *cmsg = (const struct ctrl::command_msg*) msg->payload;
-	command_msg newobj((enum commands)cmsg->command, ntoh(cmsg->message_id), targets);
-	*this = newobj;
+	this->targets(targets.data(), targets.size());
 }
 
 uint32_t command_msg::message_id() const {

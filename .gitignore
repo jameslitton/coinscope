@@ -8,6 +8,8 @@ clients/getaddr
 clients/getaddr_wrapped
 clients/connect_harvester
 clients/reconnector
+clients/kill_dupes
+tools/logchecker
 tools/logtruncate
 tools/logfixer
 connector/main

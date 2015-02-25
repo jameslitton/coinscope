@@ -319,10 +319,9 @@ void handler::handle_message_recv(const struct packed_message *msg) {
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 					int32_t given_block = *((int32_t*) (msg->payload + msg->length - 5));
 #pragma GCC diagnostic warning "-Wstrict-aliasing"
-					//cerr << "given block is " << given_block << "\n";
-					if (given_block < 500000 && given_block > g_last_block) {
-						/* TODO: correct behavior? */
-						// There are some weird big given blocks out there.
+					if (given_block > g_last_block && given_block - g_last_block <= 10) {
+						//TODO: adjust this to do moving median
+						//we'll jump no more ten guys into the future
 						g_last_block = given_block;
 					}
 				}

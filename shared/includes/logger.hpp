@@ -20,6 +20,7 @@ enum log_type {
 	BITCOIN=0x10, /* general status information about bitcoin connections, buffered */
 	BITCOIN_MSG=0x20, /* actual incoming/outgoing messages as encoded, buffered */
 	CONNECTOR=0x40, /* connector status messages, unbuffered */
+	CLIENT=0x80, /* client status messages, unbuffered */
 };
 
 
@@ -47,14 +48,6 @@ inline std::ostream & operator<<(std::ostream &o, const struct sockaddr_in &addr
 }
 
 std::string type_to_str(enum log_type type);
-
-struct log_format {
-	uint32_t source_id;
-	uint8_t type;
-	uint64_t timestamp;
-	uint8_t rest[0];
-} __attribute__((packed));
-
 
 /* all logs preceded by a 32 bit network order length prefix */
 
@@ -85,6 +78,33 @@ struct log_format {
 //		uint8_t is_sender;    
 // 	struct packed_message msg
 // };
+
+
+struct log_format {
+	uint32_t source_id;
+	uint8_t type;
+	uint64_t timestamp;
+	uint8_t rest[0];
+} __attribute__((packed));
+
+
+struct bitcoin_log_format {
+	struct log_format header;
+	uint32_t handle_id ;
+	uint32_t update_type; //see above
+	sockaddr_in remote_addr;
+	sockaddr_in local_addr;
+	uint32_t text_len;
+	char text[0];
+} __attribute__((packed));
+
+struct bitcoin_msg_log_format {
+	struct log_format header;
+	uint32_t id ;
+	uint8_t is_sender;
+	struct bitcoin::packed_message msg;
+} __attribute__((packed));
+
 
 
 class log_buffer {

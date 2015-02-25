@@ -68,3 +68,7 @@ bool read_buffer::hungry() const { return to_read() > 0; }
 wrapped_buffer<uint8_t> read_buffer::extract_buffer() {
 	return buffer_;
 }
+
+const wrapped_buffer<uint8_t> read_buffer::extract_buffer() const {
+	return buffer_;
+}

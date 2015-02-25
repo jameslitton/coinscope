@@ -169,18 +169,18 @@ int main(int argc, char *argv[]) {
 	}
 
 	/* wait for notices, upon success disconnect old one. Upon failure leave it alone */
-	bcwatch watcher(bitcoin_client, 
-	                [&](unique_ptr<struct bc_channel_msg> bc_msg) { 
-		                auto cnt = remaining.erase(bc_msg->remote);
+	bcwatchers::bcwatch watcher(bitcoin_client, 
+	                [&](unique_ptr<bc_channel_msg> bc_msg) { 
+		                auto cnt = remaining.erase(bc_msg->remote_addr);
 		                if (cnt > 0) {
-				  cout << "Denatted " << bc_msg->remote << endl;
-				  struct outgoing_message disconn(disconnect_msg(incoming_cxn[bc_msg->remote]));
+				  cout << "Denatted " << bc_msg->remote_addr << endl;
+				  struct outgoing_message disconn(disconnect_msg(incoming_cxn[bc_msg->remote_addr]));
 				  do_write(sock, disconn.buffer.const_ptr(), disconn.length);		
 		                }
 	                },
-	                [&](unique_ptr<struct bc_channel_msg> bc_msg) { 
-		                cout << "Could not reach " << bc_msg->remote << endl;
-		                remaining.erase(bc_msg->remote);
+	                [&](unique_ptr<bc_channel_msg> bc_msg) { 
+		                cout << "Could not reach " << bc_msg->remote_addr << endl;
+		                remaining.erase(bc_msg->remote_addr);
 	                });
 	while(remaining.size()) {
 		watcher.loop_once();

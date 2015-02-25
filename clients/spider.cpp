@@ -317,14 +317,6 @@ int main(int argc, char *argv[]) {
 	return EXIT_SUCCESS;
 };
 
-bool is_private(uint32_t ip) {
-	/* endian assumptions live here */
-	return
-		(0x000000FF & ip) == 10  || (0x000000FF & ip) == 127  || 
-		(0x0000FFFF & ip) == (192 | (168 << 8)) ||
-		(0x0000F0FF & ip) == (172 | (16 << 8)); 
-}
-
 
 void handle_message(read_buffer &input_buf) {
 	const uint8_t *buf = input_buf.extract_buffer().const_ptr();
@@ -386,10 +378,10 @@ void append_getaddr(uint32_t handle_id, const struct sockaddr_in &remote) {
 
 void watch_cxn(const string &client_dir) {
 	int bitcoin_client = unix_sock_client(client_dir + "bitcoin", false);
-	bcwatch watcher(bitcoin_client, 
-	                [](unique_ptr<struct bc_channel_msg> bc_msg) {
-		                append_getaddr(bc_msg->handle_id, bc_msg->remote);
-		                cout << '(' << g_successful_connects << ") successful connect to " << *((struct sockaddr*) &bc_msg->remote) << endl;
+	bcwatchers::bcwatch watcher(bitcoin_client, 
+	                [](unique_ptr<bc_channel_msg> bc_msg) {
+		                append_getaddr(bc_msg->handle_id, bc_msg->remote_addr);
+		                cout << '(' << g_successful_connects << ") successful connect to " << *((struct sockaddr*) &bc_msg->remote_addr) << endl;
 		                g_successful_connects += 1;
 
 		                unsigned long expected, desired;
@@ -400,15 +392,15 @@ void watch_cxn(const string &client_dir) {
 
 		                {
 			                unique_lock<mutex> lock(g_map_mux);
-			                auto it = addr_map.find(bc_msg->remote);
+			                auto it = addr_map.find(bc_msg->remote_addr);
 			                if (it != addr_map.end()) {
 				                it->second.connect_time = time(NULL);
 			                } else { /* we are learning about this for the first time */
-				                addr_map[bc_msg->remote] = { .connect_time = time(NULL), .getaddr_time = time(NULL) };
+				                addr_map[bc_msg->remote_addr] = { .connect_time = time(NULL), .getaddr_time = time(NULL) };
 			                }
 		                }
 	                },
-	                [](unique_ptr<struct bc_channel_msg> msg) {
+	                [](unique_ptr<bc_channel_msg> msg) {
 		                g_outstanding_connects = min((size_t)0, g_outstanding_connects - 1);
 
 		                unsigned long expected, desired;
@@ -419,7 +411,7 @@ void watch_cxn(const string &client_dir) {
 
 		                {
 			                unique_lock<mutex> lock(g_map_mux);
-			                auto it = addr_map.find(msg->remote);
+			                auto it = addr_map.find(msg->remote_addr);
 			                if (it != addr_map.end()) {
 				                it->second.connect_time = 0;
 			                } else { 
@@ -430,9 +422,9 @@ void watch_cxn(const string &client_dir) {
 			                cout << "Unsuccessful connect. " << endl;
 			                cout << "\ttime: " << msg->header.timestamp << endl;
 			                cout << "\tupdate_type: " << msg->update_type << endl;
-			                cout << "\tremote: " << *((struct sockaddr*) &msg->remote) << endl;
-			                cout << "\ttext_length: " << msg->text_length << endl;
-			                if (msg->text_length) {
+			                cout << "\tremote: " << *((struct sockaddr*) &msg->remote_addr) << endl;
+			                cout << "\ttext_length: " << msg->text_len << endl;
+			                if (msg->text_len) {
 				                cout << "\ttext: " << msg->text << endl;
 			                }
 		                }

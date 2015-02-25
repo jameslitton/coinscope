@@ -13,6 +13,8 @@
 
 
 
+
+
 struct sockaddr_cmp {
 	bool operator()(const struct sockaddr_in &lhs, const struct sockaddr_in &rhs) {
 		int t = lhs.sin_addr.s_addr - rhs.sin_addr.s_addr;
@@ -22,6 +24,14 @@ struct sockaddr_cmp {
 		return t < 0;
 	}
 };
+
+bool is_private(uint32_t ip) {
+	/* endian assumptions live here */
+	return
+		(0x000000FF & ip) == 10  || (0x000000FF & ip) == 127  || 
+		(0x0000FFFF & ip) == (192 | (168 << 8)) ||
+		(0x0000F0FF & ip) == (172 | (16 << 8)); 
+}
 
 struct sockaddr_hash {
 	size_t operator()(const struct sockaddr_in &a) const {
@@ -51,7 +61,6 @@ inline void do_write(int fd, const void *ptr, size_t len) {
 		}
 	} while ( so_far < len);
 }
-
 
 
 /* assumes sock is blocking connection to control channel, returns
