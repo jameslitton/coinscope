@@ -129,8 +129,8 @@ void connect_handler::io_cb(ev::io &watcher, int /*revents*/) {
 	} else {
 		char *err = strerror(errno);
 		uint32_t len = strlen(err);
-		io.stop();
 		close(io.fd);
+		io.stop();
 		io.fd = -1;
 		is_inactive = true;
 		struct sockaddr_in local;
@@ -166,8 +166,8 @@ accept_handler::accept_handler(int fd, const struct sockaddr_in &a_local_addr)
 
 accept_handler::~accept_handler() {
 	g_log<DEBUG>("bitcoin accept handler destroyed");
-	io.stop();
 	close(io.fd);
+	io.stop();
 	io.fd = -1;
 }
 
@@ -209,6 +209,7 @@ handler::handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_ad
 	  local_addr(a_local_addr),
 	  timestamp(ev::now(ev_default_loop())),
 	  state(a_state), 
+	  io_events(0), 
 	  io(), timer(), last_activity(timestamp),
 	  active_ping_timer(),
 	  id(id_pool++) 
@@ -218,6 +219,7 @@ handler::handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_ad
 	
 	io.set<handler, &handler::io_cb>(this);
 	if (a_state == SEND_VERSION_INIT) { /* we initiated the connection */
+		io_events = ev::WRITE;
 		io.set(fd, ev::WRITE);
 		/* TODO: profile to see if extra copies are worth optimizing away */
 		const struct sockaddr_in * external = external_addr();
@@ -227,6 +229,7 @@ handler::handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_ad
 		write_queue.append((const uint8_t *) m.get(), m->length + sizeof(*m));
 		g_log<BITCOIN>(CONNECT_SUCCESS, id, remote_addr, local_addr, NULL, 0);
 	} else if (a_state == RECV_VERSION_REPLY_HDR) { /* they initiated did */
+		io_events = ev::READ;
 		io.set(fd, ev::READ);
 		read_queue.to_read(sizeof(struct packed_message));
 		g_log<BITCOIN>(ACCEPT_SUCCESS, id, remote_addr, local_addr, NULL, 0);
@@ -335,11 +338,11 @@ void handler::handle_message_recv(const struct packed_message *msg) {
 handler::~handler() { 
 	if (io.fd >= 0) {
 		/* This shouldn't normally ever be destructed unless it is in the inactive_handler set, so this path shouldn't happen, but if so, don't leak */
-		io.stop();
 		timer.stop();
 		active_ping_timer.stop();
-		io.fd = -1;
 		close(io.fd);
+		io.stop();
+		io.fd = -1;
 		g_active_handlers.erase(id);
 	}
 }
@@ -351,8 +354,8 @@ void handler::disconnect() {
 
 void handler::suicide() {
 	timer.stop();
-	io.stop();
 	close(io.fd);
+	io.stop();
 	io.fd = -1;
 	if (g_active_handlers.find(id) == g_active_handlers.end()) {
 		cerr << "That's not supposed to happen\n";
@@ -371,7 +374,7 @@ void handler::append_for_write(const struct packed_message *m) {
 
 	if (!(state & SEND_MASK)) { /* okay, need to add to the io state */
 		int events = ev::WRITE | (state & RECV_MASK ? ev::READ : ev::NONE);
-		io.set(events);
+		io_set(events);
 	}
 	state |= SEND_MESSAGE;
 }
@@ -383,7 +386,7 @@ void handler::append_for_write(wrapped_buffer<uint8_t> buf) {
 
 	if (!(state & SEND_MASK)) { /* okay, need to add to the io state */
 		int events = ev::WRITE | (state & RECV_MASK ? ev::READ : ev::NONE);
-		io.set(events);
+		io_set(events);
 	}
 	state |= SEND_MESSAGE;
 }
@@ -555,7 +558,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 	if (state & RECV_MASK) {
 		events |= ev::READ;
 	}
-	io.set(events);
+	io_set(events);
 
 	last_activity = ev::now(ev_default_loop());
 }

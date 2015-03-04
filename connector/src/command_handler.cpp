@@ -48,8 +48,8 @@ map<uint32_t, map<uint32_t, registered_msg> > g_messages; /* handle_id, register
 handler::~handler() {
 	g_messages.erase(id);
 	if (io.fd >= 0) {
-		io.stop();
 		close(io.fd);
+		io.stop();
 	}
 }
 
@@ -274,8 +274,8 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 
 void handler::suicide() {
 
-	io.stop();
 	close(io.fd);
+	io.stop();
 	io.fd = -1;
 
 	if (g_active_handlers.find(this) != g_active_handlers.end()) {
@@ -337,8 +337,8 @@ accept_handler::accept_handler(int fd)
 }
 
 accept_handler::~accept_handler() {
-	io.stop();
 	close(io.fd);
+	io.stop();
 }
 
 void accept_handler::io_cb(ev::io &watcher, int /* revents */) {

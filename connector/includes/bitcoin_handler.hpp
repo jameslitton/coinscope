@@ -49,11 +49,19 @@ private:
 
 	uint32_t state;
 
+	int io_events;
 	ev::io io;
 	ev::timer timer; ev::tstamp last_activity;
 	ev::timer active_ping_timer;
 	uint32_t id;
 	static uint32_t id_pool;
+
+	inline void io_set(int e) {
+		if (e != io_events) {
+			io_events = e;
+			io.set(io_events);
+		}
+	}
 
 public:
 	handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_addr, const struct sockaddr_in &a_local_addr);
