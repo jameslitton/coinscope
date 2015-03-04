@@ -6,6 +6,7 @@
 /* standard C++ libraries */
 #include <iostream>
 #include <utility>
+#include <unordered_map>
 #include <map>
 #include <stack>
 #include <memory>
@@ -60,11 +61,29 @@ uint32_t g_msg_id; /* in host byte order */
 /* we will store all addresses we ever see in this structure. The
    handle_id will be set to ~0 if we do not have an active connection
    for a given address */
-map<struct sockaddr_in, uint32_t, sockaddr_cmp> g_known_addrs; /* sockaddr -> hid */
+unordered_map<struct sockaddr_in, uint32_t, sockaddr_hash, sockaddr_keyeq> g_known_addrs; /* sockaddr -> hid */
 
 map<uint32_t, unique_ptr<hid_handler> > g_known_hids; /* hid -> handler */
-map<struct sockaddr_in, unique_ptr<cxn_handler>, sockaddr_cmp > g_cxns;
+unordered_map<struct sockaddr_in, unique_ptr<cxn_handler>, sockaddr_hash, sockaddr_keyeq > g_cxns;
 
+
+inline bool do_sample() {
+	static mt19937 twister;
+	static float rate(0.0);
+	bool x;
+	if (rate == 0) {
+		const libconfig::Config *cfg(get_config());
+		rate = cfg->lookup("getaddr.sampling_rate");
+	}
+
+	if (g_known_addrs.size() < 1000) {
+		x = true;
+	} else {
+		bernoulli_distribution d(rate);
+		x = d(twister);
+	}
+	return x;
+}
 
 void register_getaddr(int sock) {
 	/* register getaddr message */
@@ -371,13 +390,13 @@ public:
 								struct sockaddr_in to_insert;
 								bzero(&to_insert, sizeof(to_insert));
 								for(size_t i = 0; i < entries; ++i) {
-									if (!is_private(addrs[i].rest.addr.ipv4.as.number)) {
+									if (!is_private(addrs[i].rest.addr.ipv4.as.number) && do_sample()) {
 										/* TODO: verify it is ipv4, since we don't support ipv6 */
 										memcpy(&to_insert.sin_addr, &addrs[i].rest.addr.ipv4.as.in_addr, sizeof(to_insert.sin_addr));
 										to_insert.sin_port = addrs[i].rest.port;
 										to_insert.sin_family = AF_INET;
 
-										auto it = g_known_addrs.find(to_insert);
+										auto it = g_known_addrs.find(to_insert); /* hot spot, ameliorated with sampling */
 										if (it == g_known_addrs.end()) {
 											g_known_addrs.insert(make_pair(to_insert, ~0));
 											unique_ptr<cxn_handler> handler(new cxn_handler(&to_insert, cxn_handler::State::DISCONNECTED));
@@ -437,7 +456,7 @@ void clock_cb (struct ev_loop *, ev_periodic *, int) {
 		const struct sockaddr_in *local = h.second->get_local();
 		if (g_bound_addrs.find(*local) == g_bound_addrs.end()) { /* not on a bound address, so must be an ephemeral port, i.e., outbound connection */
 			hids.push_back(h.first);
-		}
+		} 
 	}
 
 	if (hids.size()) {
