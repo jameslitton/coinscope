@@ -35,16 +35,10 @@ void handler::handle_accept(handlers::accept_handler<handler> *, int fd) {
 
 
 handler::handler(int fd) 
-	: read_queue(4), state(RECV_HEADER), io(), id(time(NULL)) {
-	auto p = taken_ids.insert(id);
-	while(p.second == false) {
-		sleep(1);
-		id = time(NULL);
-		p = taken_ids.insert(id);
-	}
-	cerr << "Instantiating new input handler " << id << endl;
+	: read_queue(4), write_queue(), state(RECV_HEADER), io() {
+	cerr << "Instantiating new input handler " << endl;
 	io.set<handler, &handler::io_cb>(this);
-	io.start(fd, ev::READ);
+	io.start(fd, ev::READ|ev::WRITE);
 }
 
 void handler::io_cb(ev::io &watcher, int revents) {
@@ -55,13 +49,13 @@ void handler::io_cb(ev::io &watcher, int revents) {
 				pair<int,bool> res = read_queue.do_read(watcher.fd);
 				r = res.first;
 				if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
-					cerr << "Got unexpected error on handler " << id << " : " << strerror(errno);
+					cerr << "Got unexpected error on handler : " << strerror(errno);
 					suicide();
 					return;
 				}
 				if (r == 0) { /* got disconnected! */
 					/* LOG disconnect */
-					cerr << "Remote disconnect from " << id << endl;
+					cerr << "Remote disconnect" << endl;
 					suicide();
 					return;
 				}
@@ -83,6 +77,33 @@ void handler::io_cb(ev::io &watcher, int revents) {
 			}
 		}
 	}
+
+	if (revents & ev::WRITE) {
+		ssize_t r(1);
+		while(write_queue.to_write() && r > 0) {
+			pair<int,bool> res = write_queue.do_write(watcher.fd);
+			r = res.first;
+			
+			if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) { 
+				/* most probably a disconnect of some sort, log error and queue object for deletion */
+				cerr << "Received error on write: " << strerror(errno) << endl;
+				suicide();
+				return;
+			} 
+
+			if (r == 0) {
+				cerr << "Disconnect\n";
+				suicide();
+				return;
+			}
+		}
+
+		if (write_queue.to_write() == 0) {
+			/* for logserver, only handshake ever writes out on the input channel, so we're done with that now... */
+			io.set(ev::READ);
+		}
+	}
+
 }
 
 

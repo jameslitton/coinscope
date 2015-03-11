@@ -38,7 +38,6 @@ int main(int argc, char * argv[] ) {
 
 	string root((const char*)cfg->lookup("logger.root"));
 
-	/* TODO: make configurable */
 	mkdir(root.c_str(), 0777);
 	string client_dir(root + "clients/");
 	mkdir(client_dir.c_str(), 0777);

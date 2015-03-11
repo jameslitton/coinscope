@@ -7,10 +7,10 @@
 
 using namespace std;
 
-void collector::append(wrapped_buffer<uint8_t> &&data, size_t len, uint32_t source_id) {
+void collector::append(wrapped_buffer<uint8_t> &&data, size_t len) {
 	
 	static size_t max_size = 0;
-	struct sized_buffer p(data, len, source_id);
+	struct sized_buffer p(data, len);
 	if (max_size == 0) {
 		const libconfig::Config *cfg(get_config());
 		max_size = (uint32_t)cfg->lookup("logger.max_buffer");

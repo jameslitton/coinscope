@@ -12,14 +12,12 @@
 struct sized_buffer {
 	wrapped_buffer<uint8_t> buffer;
 	size_t len; // usable length
-	uint32_t source_id;
-	sized_buffer(wrapped_buffer<uint8_t> other, size_t a_len, uint32_t source) : buffer(other), len(a_len), source_id(source) {}
-	sized_buffer(const sized_buffer &o) : buffer(o.buffer), len(o.len), source_id(o.source_id) {}
-	sized_buffer() : buffer(), len(0), source_id(0) {}
+	sized_buffer(wrapped_buffer<uint8_t> other, size_t a_len, uint32_t source) : buffer(other), len(a_len) {}
+	sized_buffer(const sized_buffer &o) : buffer(o.buffer), len(o.len) {}
+	sized_buffer() : buffer(), len(0) {}
 	sized_buffer & operator=(sized_buffer &o) {
 		buffer = o.buffer;
 		len = o.len;
-		source_id = o.source_id;
 		return *this;
 	}
 };

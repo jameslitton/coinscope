@@ -41,8 +41,20 @@ struct connect_payload {
 	struct sockaddr_in local_addr;  /* see comment in command_handler. setting this currently does nothing */
 }__attribute__((packed));
 
-struct connection_info { /* response to COMMAND_GET_CXN && part of response for CONNECT command */
+struct target {
+	uint32_t source_id; /* network byte order */
+	uint32_t handle_id; /* network byte order */
+};
+
+
+struct connection_info { /* response to COMMAND_GET_CXN && part of response for CONNECT command, v0 */
 	uint32_t handle_id;
+	struct sockaddr_in remote_addr;
+	struct sockaddr_in local_addr;
+} __attribute__((packed));
+
+struct connection_info_v1 {
+	struct target handle;
 	struct sockaddr_in remote_addr;
 	struct sockaddr_in local_addr;
 } __attribute__((packed));
@@ -51,13 +63,18 @@ struct connection_info { /* response to COMMAND_GET_CXN && part of response for 
 struct command_msg {
 	uint8_t command;
 	uint32_t message_id; /* network byte order */
-	/* still have to decide the format of target, as it depends on some
-	   data structure changes, but target will correspond to indices in
-	   the logs and values returned by COMMAND_GET_CXN */
 
 	uint32_t target_cnt; /* network byte order */
 	uint32_t targets[0]; /* network byte order */
 } __attribute__((packed));
+
+struct command_msg_v1 {
+	uint8_t command;
+	uint32_t message_id; /* network byte order */
+	uint32_t target_cnt; /* network byte order */
+	struct target targets[0];
+} __attribute__((packed));
+
 
 /*
   send_message(length, message) //returns message id

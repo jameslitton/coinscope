@@ -47,10 +47,18 @@ ipaddr_set g_blacklist;
 static void log_watcher(ev::timer &w, int /*revents*/) {
 	if (g_log_buffer == nullptr) {
 		try {
-			g_log_buffer = new log_buffer(unix_sock_client(*static_cast<string*>(w.data), true));
-		} catch(const network_error &e) {
-			g_log_buffer = nullptr;
-			g_log<ERROR>(e.what());
+			g_log_buffer = new log_buffer(unix_sock_client(*static_cast<string*>(w.data), false));
+
+			/* read out id */
+			if (read(g_log_buffer->fd, &g_id, 4) != 4) {
+				cerr << "Could not get id from logserver. Disconnecting\n";
+				delete g_log_buffer;
+				g_log_buffer = nullptr;
+			} else {
+				g_id = ntoh(g_id);
+				fcntl(g_log_buffer->fd, F_SETFL, O_NONBLOCK);
+			}
+
 		}
 	}
 }
@@ -120,10 +128,21 @@ int main(int argc, char *argv[]) {
 	string root((const char*)cfg->lookup("logger.root"));
 	string logpath = root + "servers";
 	try {
-		g_log_buffer = new log_buffer(unix_sock_client(logpath, true));
+		g_log_buffer = new log_buffer(unix_sock_client(logpath, false));
+		/* read out id */
+		if (read(g_log_buffer->fd, &g_id, 4) != 4) {
+			cerr << "Could not get id from logserver. Disconnecting.\n";
+			delete g_log_buffer;
+			g_log_buffer = nullptr;
+		} else {
+			g_id = ntoh(g_id);
+			fcntl(g_log_buffer->fd, F_SETFL, O_NONBLOCK);
+		}
+
 	} catch (const network_error &e) {
 		cerr << "WARNING: Could not connect to log server! " << e.what() << endl;
 	}
+
 
 
 	ev::timer logwatch;

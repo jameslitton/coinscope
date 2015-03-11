@@ -129,7 +129,29 @@ command_msg::command_msg(enum commands a_command, uint32_t a_message_id, const u
 	}
 	cmsg->target_cnt = hton((uint32_t)a_target_cnt);
 }
+
 command_msg::command_msg(enum commands command, uint32_t message_id /* host byte order */, const std::vector<uint32_t> &targets) 
+	: command_msg(command, message_id, targets.data(), targets.size()) {
+}
+
+command_msg(enum commands command, uint32_t message_id /* host byte order */, const struct target *targets, size_t target_cnt)
+	: message(wrapped_buffer<uint8_t>(sizeof(ctrl::message) + sizeof(ctrl::command_msg) + sizeof(*targets)*target_cnt)) {
+
+	ctrl::message *msg = (ctrl::message *)buffer.ptr();
+	msg->version = 1;
+	msg->message_type = COMMAND;
+	msg->length = hton((uint32_t)(sizeof(ctrl::command_msg) + sizeof(*targets) * target_cnt));
+	struct ctrl::command_msg *cmsg = (struct ctrl::command_msg*) msg->payload;
+	cmsg->command = a_command;
+	cmsg->message_id = hton(a_message_id);
+	for(size_t i = 0; i < target_cnt; ++i) {
+		cmsg->targets[i].source_id = hton(targets[i].source_id);
+		cmsg->targets[i].handle_id = hton(targets[i].handle_id);
+	}
+	cmsg->target_cnt = hton((uint32_t)target_cnt);
+}
+
+command_msg::command_msg(enum commands command, uint32_t message_id /* host byte order */, const std::vector<struct target> &targets)
 	: command_msg(command, message_id, targets.data(), targets.size()) {
 }
 

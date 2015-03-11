@@ -112,6 +112,7 @@ public:
 	write_buffer write_queue;
 	int fd;
 	ev::io io;
+	uint32_t id_netorder;
 	/* fd should be a writable unix socket */
 	log_buffer(int fd);
 	void append(wrapped_buffer<uint8_t> &ptr, size_t len);
@@ -162,6 +163,9 @@ void g_log(const std::string &val, Targs... Fargs) {
 
 	ptr += 4; /* leave room for the length to be written */
 
+	std::copy((uint8_t*)& (g_log_buffer->id_netorder), (uint8_t*)(&(g_log_buffer->id_netorder)) + 4, ptr);
+	ptr += 4;
+
 	std::copy((uint8_t*)&n, (uint8_t*)(&n) + 1, ptr);
 	ptr += 1;
 	
@@ -169,7 +173,8 @@ void g_log(const std::string &val, Targs... Fargs) {
 	          ptr);
 	ptr += sizeof(net_time);;
 
-	size_t len = sizeof(net_time) + sizeof(n) + sizeof(uint32_t);
+	size_t len = ptr - wbuf.ptr();
+	assert(len == sizeof(net_time) + sizeof(n) + sizeof(uint32_t) * 2);
 	
 	g_log_inner(wbuf,len,val, Fargs...);
 	if (g_log_buffer) {
@@ -183,7 +188,7 @@ void g_log(const std::string &val, Targs... Fargs) {
 		}
 		g_log_buffer->append(wbuf, len);
 	} else {
-		std::cerr << "<<CONSOLE FALLBACK>> " << ((char*) wbuf.const_ptr() + 1 + sizeof(net_time) + 4) << std::endl;
+		std::cerr << "<<CONSOLE FALLBACK>> " << ((char*) wbuf.const_ptr() + 1 + sizeof(net_time) + 8) << std::endl;
 	}
 }
 

@@ -22,11 +22,27 @@ wrapped_buffer<uint8_t> g_log_store(store_size);
 
 
 
-log_buffer::log_buffer(int fd) : write_queue(), fd(fd), io() { 
+log_buffer::log_buffer(int fd) : write_queue(), fd(fd), io(), id_netorder(0) { 
 	io.set<log_buffer, &log_buffer::io_cb>(this);
 	io.set(fd, ev::WRITE);
 	io.start();
+
+	std::random_device rd;
+	std::mt18837 gen(rd());
+
+	/* if this collides with another connector, that's "bad" but also
+	   very unlikely. If ground control is running, he should spike
+	   those kids and restart */
+
+	std::uniform_int_distribution<uint32_t> dis(0, std::numeric_limits<uint32_t>::max());
+	uint32_t id(dis(gen));
+
+	std::cerr << "acquiring source id " << id << endl;
+
+	id_netorder = hton(id);
+
 }
+
 void log_buffer::append(wrapped_buffer<uint8_t> &ptr, size_t len) {
 	size_t to_write = write_queue.to_write();
 	write_queue.append(ptr, len);
@@ -72,8 +88,9 @@ static void append_buf(wrapped_buffer<uint8_t> &buf, size_t len) {
 template <> void g_log<BITCOIN>(uint32_t update_type, uint32_t handle_id, const struct sockaddr_in &remote, 
                                 const struct sockaddr_in &local, const char * text, uint32_t text_len) {
 	uint64_t net_time = hton((uint64_t)ev::now(ev_default_loop()));
+
 	size_t len = 1 + sizeof(net_time) + sizeof(handle_id) + sizeof(update_type) +
-		2*sizeof(remote) + sizeof(text_len) + text_len;
+		2*sizeof(remote) + sizeof(text_len) + text_len + 4 /* sid */;
 
 	if (store_size == 1 || len + 4 > g_log_store.allocated() - g_log_cursor) {
 		if (g_log_cursor > 0) { /* yes, may conceivably just want to grow buffer for sufficiently small cursors... */
@@ -89,6 +106,9 @@ template <> void g_log<BITCOIN>(uint32_t update_type, uint32_t handle_id, const 
 
 	uint32_t netlen = hton((uint32_t)len);
 	copy((uint8_t*) &netlen, ((uint8_t*)&netlen) + 4, cur_ptr);
+	cur_ptr += 4;
+
+	copy((uint8_t*)& (g_log_buffer->id_netorder), (uint8_t*)(&(g_log_buffer->id_netorder)) + 4, cur_ptr);
 	cur_ptr += 4;
 
 	uint8_t typ = BITCOIN;
@@ -134,7 +154,7 @@ template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bi
 
 	uint64_t net_time = hton((uint64_t)ev::now(ev_default_loop()));
 	uint32_t net_id = hton(id);
-	size_t len = 1 + sizeof(net_time) + sizeof(net_id) + 1 + sizeof(*m) + m->length;
+	size_t len = 1 + sizeof(net_time) + sizeof(net_id) + 1 + sizeof(*m) + m->length + 4 /* sid */;
 
 	if (len + 4 > g_log_store.allocated() - g_log_cursor) {
 		if (g_log_cursor > 0) {
@@ -149,6 +169,9 @@ template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bi
 
 	uint32_t netlen = hton((uint32_t)len);
 	copy((uint8_t*) &netlen, ((uint8_t*)&netlen) + 4, cur_ptr);
+	cur_ptr += 4;
+
+	copy((uint8_t*)& (g_log_buffer->id_netorder), (uint8_t*)(&(g_log_buffer->id_netorder)) + 4, cur_ptr);
 	cur_ptr += 4;
 
 	uint8_t typ = BITCOIN_MSG;
