@@ -159,5 +159,5 @@ type_to_obj = {
 	log_types.ERROR : error_log,
 	log_types.BITCOIN : bitcoin_log,
 	log_types.BITCOIN_MSG : bitcoin_msg_log,
-	log_types.CONNECTOR : bitcoin_connector_log
+	log_types.CONNECTOR : connector_log
 }
