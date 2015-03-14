@@ -54,7 +54,7 @@ pair<const uint8_t *,size_t> get_bytes(const char *filename) {
 }
 
 inline bool is_type(uint8_t t) {
-	return t == DEBUG || t == CTRL || t == ERROR || t == BITCOIN || t == BITCOIN_MSG;
+	return t == DEBUG || t == CTRL || t == ERROR || t == BITCOIN || t == BITCOIN_MSG || t == CONNECTOR || t == CLIENT;
 }
 
 int main() {
