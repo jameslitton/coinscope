@@ -100,6 +100,16 @@ connect_handler::connect_handler(int fd, const struct sockaddr_in &remote_addr)
 		io.set<connect_handler, &connect_handler::io_cb>(this);
 		io.set(fd, ev::WRITE); /* mark as writable once the connection comes in */
 		io.start();
+	} else {
+		char *err = strerror(errno);
+		uint32_t len = strlen(err);
+		close(fd);
+		struct sockaddr_in local;
+		bzero(&local, sizeof(local));
+		local.sin_family = AF_INET; /* there is no local connection actually */
+		g_log<BITCOIN>(CONNECT_FAILURE, 0, remote_addr_, local, err, len+1);
+		g_log<ERROR>("Unexpected error occurred in connect handler: ", err);
+		g_inactive_connection_handlers.insert(this);
 	}
 }
 
