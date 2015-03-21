@@ -349,17 +349,13 @@ void accept_handler::io_cb(ev::io &watcher, int /* revents */) {
 		client = Accept(watcher.fd, &addr, &len);
 		fcntl(client, F_SETFL, O_NONBLOCK);
 	} catch (network_error &e) {
-		if (e.error_code() != EWOULDBLOCK && e.error_code() != EAGAIN) {
+		if (e.error_code() != EWOULDBLOCK && e.error_code() != EAGAIN && e.error_code() != ECONNABORTED && e.error_code() != EINTR) {
 			g_log<ERROR>(e.what(), "(command_handler)");
-			watcher.stop();
-			close(watcher.fd);
-			delete this;
-
-			/* not sure entirely what recovery policy should be on dead control channels, probably reattempt acquisition, this is a TODO */
 			/*
-			  if (watchers.erase(watcher)) {
+			  TODO: Put in a good recovery policy here 
+			  watcher.stop();
+			  close(watcher.fd);
 			  delete this;
-			  }
 			*/
 		}
 		return;

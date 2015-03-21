@@ -179,7 +179,7 @@ void accept_handler::io_cb(ev::io &watcher, int /*revents*/) {
 		client = Accept(watcher.fd, (struct sockaddr*)&addr, &len);
 		fcntl(client, F_SETFL, O_NONBLOCK);		
 	} catch (network_error &e) {
-		if (e.error_code() != EWOULDBLOCK && e.error_code() != EAGAIN && e.error_code() != EINTR) {
+		if (e.error_code() != EWOULDBLOCK && e.error_code() != EAGAIN && e.error_code() != ECONNABORTED && e.error_code() != EINTR) {
 			g_log<ERROR>(e.what(), "(bitcoin_handler)", e.error_code());
 			
 			/* trigger destruction of self via some kind of queue and probably recreate channel! */
