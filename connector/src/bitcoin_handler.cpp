@@ -108,7 +108,6 @@ connect_handler::connect_handler(int fd, const struct sockaddr_in &remote_addr)
 		bzero(&local, sizeof(local));
 		local.sin_family = AF_INET; /* there is no local connection actually */
 		g_log<BITCOIN>(CONNECT_FAILURE, 0, remote_addr_, local, err, len+1);
-		g_log<ERROR>("Unexpected error occurred in connect handler: ", err);
 		g_inactive_connection_handlers.insert(this);
 	}
 }
