@@ -6,7 +6,6 @@ use warnings;
 use DBI qw(:sql_types);
 use DBD::Pg qw(:pg_types);
 
-use Test::utf8;
 use Term::ProgressBar;
 use Data::Dumper;
 use Set::Scalar;
@@ -87,12 +86,10 @@ sub bitcoin_handler {
 
 sub get_command_id {
 	my $str = $_[0];
-	is_within_ascii($str);
-	print "$str\n";
-	return 0;
-	Encode::_utf8_on($str);
-	unless (is_valid_string($str)) {
-		print "Bad command, got ".$_[0]."\n";
+	if ($str =~ /[[:^ascii:]]/) {
+	    (my $p) = unpack("H*", $str);
+	    $str = "\\x$p";
+	    $str = substr($str, 0, 12);
 	}
 	return 0;
 }

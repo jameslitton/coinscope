@@ -4,10 +4,12 @@ SHARED=../shared/bitcoin.o ../shared/crypto.o ../shared/iobuf.o ../shared/logger
 
 LDLIBS=-lev -lcrypto -lconfig++ -lboost_program_options
 
-all: main 
+all: main groundctrl
 
 clean_extra: 
 	rm -rf main
 
 main: main.cpp bitcoin_handler.o command_handler.o $(SHARED)
+
+groundctrl: groundctrl.cpp groundctrl_command_handler.o $(SHARED)
 

@@ -51,12 +51,13 @@ int drop_perms(const char *username, const char *group) {
 	return 0;
 }
 
-int startup_setup(int argc, char * argv[], bool do_perms) {
+int startup_setup(int argc, char * argv[], bool do_perms, bool *is_tom) {
    po::options_description desc("Options");
    desc.add_options()
       ("help", "Produce help message")
       ("configfile", po::value<string>()->default_value("../netmine.cfg"), "specify the config file")
-      ("daemonize", po::value<int>()->default_value(0), "daemonize");
+	   ("daemonize", po::value<int>()->default_value(0), "daemonize")
+	   ("tom", po::value<int>()->default_value(0), "For connector instances, expect coordination from ground control");
 
    po::variables_map pvm;
    po::store(po::parse_command_line(argc, argv, desc), pvm);
@@ -77,8 +78,14 @@ int startup_setup(int argc, char * argv[], bool do_perms) {
    }
    
 
+   if (is_tom) { 
+	   *is_tom = pvm["tom"].as<int>() == 1;
+   }
+
+
+
    if (pvm["daemonize"].as<int>() == 1) {
-      if (daemon(0, 0)) {
+      if (daemon(1, 0)) {
          cerr << "Failed to daemonize: " << strerror(errno) << endl;
          return 2;
       }

@@ -6,6 +6,7 @@
 #include <ev++.h>
 
 #include "read_buffer.hpp"
+#include "write_buffer.hpp"
 #include "netwrap.hpp"
 #include "accept_handler.hpp"
 

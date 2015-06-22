@@ -12,7 +12,7 @@
 struct sized_buffer {
 	wrapped_buffer<uint8_t> buffer;
 	size_t len; // usable length
-	sized_buffer(wrapped_buffer<uint8_t> other, size_t a_len, uint32_t source) : buffer(other), len(a_len) {}
+	sized_buffer(wrapped_buffer<uint8_t> other, size_t a_len/*, uint32_t source*/) : buffer(other), len(a_len) {}
 	sized_buffer(const sized_buffer &o) : buffer(o.buffer), len(o.len) {}
 	sized_buffer() : buffer(), len(0) {}
 	sized_buffer & operator=(sized_buffer &o) {
@@ -31,7 +31,7 @@ struct sized_buffer_queue {
 class collector {
 public:
 
-	void append(wrapped_buffer<uint8_t> &&data, size_t len, uint32_t source_id);
+	void append(wrapped_buffer<uint8_t> &&data, size_t len/*, uint32_t source_id*/);
 	struct sized_buffer pop(output_cxn::handler *h);
 	void add_consumer(output_cxn::handler *h); /* adds a consumer handler */
 	void retire_consumer(output_cxn::handler *h);

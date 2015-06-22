@@ -80,8 +80,10 @@ class command_msg : public message {
 public:
 	command_msg(enum commands command, uint32_t message_id /* host byte order */, const std::vector<uint32_t> &targets);
 	command_msg(enum commands command, uint32_t message_id, const uint32_t *targets, size_t target_cnt);
+#if 0
 	command_msg(enum commands command, uint32_t message_id /* host byte order */, const std::vector<struct target> &targets); /* version 2 command_msg */
 	command_msg(enum commands command, uint32_t message_id /* host byte order */, const struct target *targets, size_t target_cnt); /* version 2 command_msg */
+#endif
 	command_msg(const wrapped_buffer<uint8_t> &contents) : message(contents) {}
 	command_msg(command_msg &&moved) : message(std::move(moved.buffer)) {}
 	command_msg(const command_msg &copy) : message(copy.buffer) {}

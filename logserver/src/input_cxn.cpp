@@ -69,7 +69,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 				} else {
 					/* item needs to be handled */
 					wrapped_buffer<uint8_t> p = read_queue.extract_buffer();
-					collector::get().append(move(p), read_queue.cursor(), id);
+					collector::get().append(move(p), read_queue.cursor()/*, id */);
 					read_queue.cursor(0);
 					read_queue.to_read(4);
 					state = RECV_HEADER;

@@ -2,7 +2,9 @@
 
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <random>
 
+#include "netwrap.hpp"
 #include "logger.hpp"
 
 
@@ -12,14 +14,24 @@ using namespace std;
 
 log_buffer *g_log_buffer;
 
+uint32_t log_buffer::fixed_id = ~0;
+
 const static size_t store_size(4096);
 
 size_t g_log_cursor(0);
 wrapped_buffer<uint8_t> g_log_store(store_size);
 
 
-
-
+void log_watcher(ev::timer &w, int /*revents*/) {
+	if (g_log_buffer == nullptr) {
+		try {
+			g_log_buffer = new log_buffer(unix_sock_client(*static_cast<string*>(w.data), true));
+		} catch(const network_error &e) {
+			g_log_buffer = nullptr;
+			g_log<ERROR>(e.what());
+		}
+	}
+}
 
 
 log_buffer::log_buffer(int fd) : write_queue(), fd(fd), io(), id_netorder(0) { 
@@ -27,16 +39,19 @@ log_buffer::log_buffer(int fd) : write_queue(), fd(fd), io(), id_netorder(0) {
 	io.set(fd, ev::WRITE);
 	io.start();
 
-	std::random_device rd;
-	std::mt18837 gen(rd());
+	if (fixed_id == (uint32_t)~0) {
+		std::random_device rd;
+		std::mt19937 gen(rd());
 
-	/* if this collides with another connector, that's "bad" but also
-	   very unlikely. If ground control is running, he should spike
-	   those kids and restart */
+		/* if this collides with another connector, that's "bad" but
+		   also very unlikely. If ground control is running, he should
+		   spike those kids and get them to reassign */
 
-	std::uniform_int_distribution<uint32_t> dis(0, std::numeric_limits<uint32_t>::max());
-	uint32_t id(dis(gen));
+		std::uniform_int_distribution<uint32_t> dis(0, std::numeric_limits<uint32_t>::max());
 
+	}
+
+	uint32_t id = fixed_id;
 	std::cerr << "acquiring source id " << id << endl;
 
 	id_netorder = hton(id);
@@ -266,6 +281,9 @@ string type_to_str(enum log_type type) {
 		break;
 	case CLIENT:
 		return "CLIENT";
+		break;
+	case GROUND_CTRL:
+		return "GROUND_CTRL";
 		break;
 	default:
 		return "UNKNOWN";

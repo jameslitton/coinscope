@@ -134,7 +134,8 @@ command_msg::command_msg(enum commands command, uint32_t message_id /* host byte
 	: command_msg(command, message_id, targets.data(), targets.size()) {
 }
 
-command_msg(enum commands command, uint32_t message_id /* host byte order */, const struct target *targets, size_t target_cnt)
+#if 0
+command_msg::command_msg(enum commands a_command, uint32_t a_message_id /* host byte order */, const struct target *targets, size_t target_cnt)
 	: message(wrapped_buffer<uint8_t>(sizeof(ctrl::message) + sizeof(ctrl::command_msg) + sizeof(*targets)*target_cnt)) {
 
 	ctrl::message *msg = (ctrl::message *)buffer.ptr();
@@ -154,6 +155,7 @@ command_msg(enum commands command, uint32_t message_id /* host byte order */, co
 command_msg::command_msg(enum commands command, uint32_t message_id /* host byte order */, const std::vector<struct target> &targets)
 	: command_msg(command, message_id, targets.data(), targets.size()) {
 }
+#endif
 
 enum commands command_msg::command() const {
 	const ctrl::message *msg = (const ctrl::message*) buffer.const_ptr();

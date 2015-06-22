@@ -8,7 +8,7 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 
-#include "groundctrl_command_handler.hpp"
+#include "command_handler.hpp"
 #include "netwrap.hpp"
 #include "network.hpp"
 #include "logger.hpp"
@@ -19,13 +19,18 @@ namespace bc = bitcoin;
 
 namespace ctrl {
 
+
+handler_set g_active_handlers;
+handler_set g_inactive_handlers;
+
+
 #define SOURCE_BITS 3
 
 map<uint32_t, uint32_t> g_source_mask; /* for v0 people, mapping source_id to higher SOURCE_BITS mask */
 
 uint32_t handler::id_pool = 0; /* must all fit in [0, 2^SOURCE_BITS] if we want v0 compatibility, otherwise full range */
 
-map<uint32_t, map<uint32_t, uint32_t> > g_messages /* handle_id, local_msg_id, remote_msg_id */
+map<uint32_t, map<uint32_t, uint32_t> > g_messages; /* handle_id, local_msg_id, remote_msg_id */
 
 handler::~handler() {
 	g_messages.erase(id);
@@ -35,7 +40,7 @@ handler::~handler() {
 	}
 }
 
-void handler::handle_message_recv(const struct command_msg *msg, uint8_t version) { 
+void handler::handle_message_recv(const struct command_msg *msg/*, uint8_t version */) { 
 	vector<uint8_t> out;
 
 	if (msg->command == COMMAND_GET_CXN) {
@@ -44,7 +49,7 @@ void handler::handle_message_recv(const struct command_msg *msg, uint8_t version
 		/* format is struct connection_info or struct connection_info_v1 */
 
 		/* call each connector command_get_cxn and pack in source_id, get the results (async?), and send back the results */
-		write_queue.append(buffer, sizeof(len) + bc::g_active_handlers.size() * sizeof(struct connection_info));
+		//write_queue.append(buffer, sizeof(len) + bc::g_active_handlers.size() * sizeof(struct connection_info));
 		state |= SEND_MESSAGE;
 
 	} else if (msg->command == COMMAND_SEND_MSG) {
@@ -54,17 +59,21 @@ void handler::handle_message_recv(const struct command_msg *msg, uint8_t version
 		if (it == g_messages[this->id].end()) {
 			g_log<ERROR>("invalid message id", message_id);
 		} else {
+			/*
 			wrapped_buffer<uint8_t> packed(it->second.get_buffer());
 			foreach_handlers(msg, [&](pair<const uint32_t, unique_ptr<bc::handler> > &p) {
 					p.second->append_for_write(packed);
 				});
+			*/
 		}
 	} else if (msg->command == COMMAND_DISCONNECT) {
 		/* GC Go to the connector that has a given id and issue the disconnect. Perhaps have each connector use the high X bits to handle their id. Version means different foreach */
 		g_log<DEBUG>("disconnect command received");
+		/*
 		foreach_handlers(msg, [](pair<const uint32_t, unique_ptr<bc::handler> > &p) {
 				p.second->disconnect();
 			});
+		*/
 	} else {
 		g_log<CTRL>("UNKNOWN COMMAND_MSG COMMAND: ", msg->command);
 	}
@@ -131,7 +140,8 @@ void handler::receive_payload() {
 				g_log<ERROR>("Attempted to register invalid message");
 			} else {
 				uint32_t id = g_message_ids++;
-				auto pair = g_messages[this->id].insert(make_pair(id, registered_msg(msg)));
+				//auto pair = g_messages[this->id].insert(make_pair(id, registered_msg(msg)));
+				auto pair = g_messages[this->id].insert(make_pair(id, 5));
 				g_log<CTRL>("Registering message ", regid, (struct bitcoin::packed_message *) msg->payload);
 				if (pair.second) {
 					netid = hton(id);
@@ -146,7 +156,7 @@ void handler::receive_payload() {
 		}
 		break;
 	case COMMAND:
-		handle_message_recv((struct command_msg*) msg->payload, msg->version);
+		handle_message_recv((struct command_msg*) msg->payload/*, msg->version */);
 		state = (state & SEND_MASK);
 		break;
 	case CONNECT:
@@ -155,6 +165,8 @@ void handler::receive_payload() {
 			/* currently local is ignored, but would be used if we bound to more than one interface */
 			struct connect_payload *payload = (struct connect_payload*) msg->payload;
 			g_log<CTRL>("Attempting to connect to", payload->remote_addr, "for", regid);
+
+			throw "hell noes";
 
 			int fd(-1);
 			// TODO: setting local on the client does nothing, but could specify the interface used
@@ -171,7 +183,7 @@ void handler::receive_payload() {
 
 			if (fd >= 0) {
 				/* yes, it dangles. It schedules itself for cleanup. yech */
-				new bc::connect_handler(fd, payload->remote_addr); 
+				//new bc::connect_handler(fd, payload->remote_addr); 
 			}
 		}
 		break;

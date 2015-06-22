@@ -21,6 +21,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/resource.h>
+#include <libgen.h>
 
 /* third party libraries */
 #include <ev++.h>
@@ -35,142 +36,129 @@
 #include "logger.hpp"
 #include "network.hpp"
 #include "config.hpp"
-#include "blacklist.hpp"
 
 using namespace std;
 
 namespace bc = bitcoin;
 
-ipaddr_set g_blacklist;
-
-
-static void log_watcher(ev::timer &w, int /*revents*/) {
-	if (g_log_buffer == nullptr) {
-		try {
-			g_log_buffer = new log_buffer(unix_sock_client(*static_cast<string*>(w.data), false));
-
-			/* read out id */
-			if (read(g_log_buffer->fd, &g_id, 4) != 4) {
-				cerr << "Could not get id from logserver. Disconnecting\n";
-				delete g_log_buffer;
-				g_log_buffer = nullptr;
-			} else {
-				g_id = ntoh(g_id);
-				fcntl(g_log_buffer->fd, F_SETFL, O_NONBLOCK);
-			}
-
-		}
+class child_data {
+private:
+	pid_t pid;
+	int sock;
+public:
+	child_data() : pid(-1), sock(-1) {}
+	child_data(pid_t p, int s) : pid(p), sock(s) {}
+	child_data(child_data &&moved) : pid(moved.pid), sock(moved.sock) {
+		moved.sock = -1;
 	}
-}
+	child_data & operator=(child_data &&moved) {
+		if (sock != -1) {
+			close(sock);
+		}
+		sock = moved.sock;
+		moved.sock = -1;
+		pid = moved.pid;
+		return *this;
+	}
+	~child_data() { if (sock != -1) close(sock); };
 
-static void load_blacklist() {
+private:
+	child_data & operator=(const child_data &other);
+	child_data(const child_data &o);
+};
+
+map<int, child_data> childmap; /* idx -> child_data */
+
+void standup_getup_children(char *argv[], const int *which) { /* which is terminated by -1, a list of which children to spin up */
+	vector<pair< pid_t, int> > children; /* vector location specifies index */
 	const libconfig::Config *cfg(get_config());
-	const char *filename = cfg->lookup("connector.blacklist");
-	ifstream file(filename);;
 
-	if (file) {
-		g_blacklist.clear();
-
-		string line;
-		struct sockaddr_in entry;
-		bzero(&entry, sizeof(entry));
-		entry.sin_family = AF_INET;
-
-		while(getline(file, line)) {
-			if (inet_pton(AF_INET, line.c_str(), &entry.sin_addr) != 1) {
-				g_log<ERROR>("Invalid blacklist entry", line);
-			} else {
-				g_blacklist.insert(entry);
-			}
+	for(;*which >= 0; ++which) {
+		cerr << "Doing " << *which << endl;
+		int sv[2];
+		if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) {
+			throw network_error(strerror(errno), errno);
 		}
-	
-		g_log<CONNECTOR>("Loading blacklist, received", g_blacklist.size(), "unique entries");
-	} else {
-		g_log<ERROR>("Could not open blacklist file");
+		pid_t pid = fork();
+		char buffer[sizeof(*which)];
+		if (pid < 0) {
+			throw network_error(strerror(errno), errno); 
+		} else if(pid) { /* in parent */
+			// talk to the child over sv[0]
+			close(sv[1]);
+			int nidx = hton(*which);
+			memcpy(buffer, &nidx, sizeof(nidx));
+			size_t needed = sizeof(nidx);
+			childmap[ *which ] = child_data(pid, sv[0]);
+			while(needed > 0) {
+			ssize_t got = send(sv[0], buffer + sizeof(nidx) - needed, needed, MSG_NOSIGNAL);
+				if (got > 0) {
+					needed -= got; 
+				} else if (got < 0) {
+					cerr << "Failed to send idx to child, so death to him " << pid << ": " << strerror(errno) << endl;
+					kill(pid, SIGKILL);
+					needed = 0;
+					/* sv[0] is invalid in some way presumably, but this should be handled by sigchld when it cleans this out of childmap */
+				}
+			}
+
+		} else { /* in child */
+			// We will assume file descriptor 3 is the channel for the
+			// child, so map sv[1] to be the child descriptor
+			if (dup2(sv[1], 3) != 3) {
+				throw runtime_error(strerror(errno));
+			}
+			/* this is cludgy, but who cares */
+			string path(dirname(argv[0]));
+			path += "/main";
+			string config_arg("--configfile="); config_arg += string("=") + ((const char*)cfg->lookup("version").getSourceFile());
+			string daemon_arg("--daemonize=0");
+			string tom_arg("--tom=1");
+			execl(path.c_str(), config_arg.c_str(), daemon_arg.c_str(), tom_arg.c_str(), (char*)NULL);
+			throw runtime_error(strerror(errno));
+		}
 	}
-
-	file.close();
-
 }
 
-static void hup_watcher(ev::sig & /*s*/, int /* revents */) {
-	load_blacklist();
-}
-
-#define TOM_FD 3
-
+/* because we do fork/exec in here, the assumption is that everything
+   is CLOEXEC or is appropriately handled in standup/getup children */
 int main(int argc, char *argv[]) {
 
-	/* check limits or no point */
 
-	struct rlimit limit;
-	if (getrlimit(RLIMIT_NOFILE, &limit) != 0) {
-		cerr << "Could not get limit\n";
-		return EXIT_FAILURE;
-	}
-
-	if (0 && limit.rlim_cur < 999900) {
-		cerr << "limit too low, aborting (" << limit.rlim_cur << ")\n";
-		return EXIT_FAILURE;
-	}
-
-
-	bool is_tom = false;
-	if (startup_setup(argc, argv, true, &is_tom) != 0) {
+	if (startup_setup(argc, argv) != 0) {
 		return EXIT_FAILURE;
 	}
 
 	const libconfig::Config *cfg(get_config());
-
-	int config_idx(0);
-	if (is_tom) {
-		/* communicate with GC to get connector address */
-		cerr << "\nI am a child that was launched with tom on: " << getpid() << "\n";
-		char buffer[sizeof(int)];
-		size_t needed = sizeof(buffer);
-		while(needed) {
-			ssize_t got = recv(TOM_FD, buffer + sizeof(buffer) - needed, needed, 0);
-			if (got > 0) {
-				needed -= got;
-			} else if (got < 0) {
-				cerr << "Failed to receive id: " << strerror(errno) << endl;
-				return EXIT_FAILURE;
-			}
-		}
-		config_idx = ntoh(*((int*) buffer));
-		cerr << "Id I got was: " << config_idx << endl;
-	} else {
-		/* do non GC version */
-		cerr << "\nI am a child that was launched with tom off: " << getpid() << endl;
-	}
-
-	cerr << getpid() << " exiting with tom " << is_tom << endl;
-
-	return 0;
-		
 	const char *config_file = cfg->lookup("version").getSourceFile();
 
 	signal(SIGPIPE, SIG_IGN);
 
-	cerr << "Starting up and transferring to log server" << endl;
+	cerr << "Connecting to log server" << endl;
+
+	/* okay, stand up children now. Note: nothing but stdin, stdout,
+	   and sterr are open right now. If this changes, cleanup in this
+	   function. */
+	int which[] = {0,1,-1};
+	standup_getup_children(argv,which);
+
+	return 0;
 
 	string root((const char*)cfg->lookup("logger.root"));
 	string logpath = root + "servers";
 	try {
 		g_log_buffer = new log_buffer(unix_sock_client(logpath, true));
 	} catch (const network_error &e) {
-		cerr << "WARNING: Could not connect to log server! " << e.what() << endl;
+		cerr << "WARNING: Could not connect to log server! Will reattempt" << e.what() << endl;
 	}
+
+
+	
 
 	ev::timer logwatch;
 	logwatch.set<log_watcher>(&logpath);
 	logwatch.set(10.0, 10.0);
 	logwatch.start();
-
-	ev::sig sigwatch;
-	sigwatch.set<hup_watcher>();
-	sigwatch.set(SIGHUP);
-	sigwatch.start();
 
 	const char *control_filename = cfg->lookup("connector.control_path");
 	unlink(control_filename);
@@ -218,7 +206,6 @@ int main(int argc, char *argv[]) {
 
 		/* TEMPORARY HACK!!!! This is because on EC2 the local interface is not the same as the public interface */
 		bitcoin_addr.sin_addr.s_addr = INADDR_ANY;
-		cerr << "Fix INADDR_ANY. Just comment out and verify good now\n";
 
 
 		int bitcoin_sock = Socket(AF_INET, SOCK_STREAM, 0);
@@ -243,12 +230,10 @@ int main(int argc, char *argv[]) {
 		for(string line; getline(cfile,line);) {
 			s += line + "\n";
 		}
-		g_log<CONNECTOR>("Initiating with commit: ", commit_hash);
+		g_log<CONNECTOR>("Initiating GC with commit: ", commit_hash);
 		g_log<CONNECTOR>("Full config: ", s);
 		cfile.close();
 	}
-
-	load_blacklist();
 	
 	while(true) {
 		/* add timer to attempt recreation of lost control channel */

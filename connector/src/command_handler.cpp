@@ -367,6 +367,9 @@ void accept_handler::io_cb(ev::io &watcher, int /* revents */) {
 			  close(watcher.fd);
 			  delete this;
 			*/
+
+			/* TODO: Add appropriate recovery policy if our control channel gets sad */
+
 		}
 		return;
 	}

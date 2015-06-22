@@ -21,6 +21,7 @@ enum log_type {
 	BITCOIN_MSG=0x20, /* actual incoming/outgoing messages as encoded, buffered */
 	CONNECTOR=0x40, /* connector status messages, unbuffered */
 	CLIENT=0x80, /* client status messages, unbuffered */
+	GROUND_CTRL=0x100, /* client status messages, unbuffered */
 };
 
 
@@ -118,12 +119,15 @@ public:
 	void append(wrapped_buffer<uint8_t> &ptr, size_t len);
 	void io_cb(ev::io &watcher, int revents);
 	~log_buffer();
+	static uint32_t fixed_id;
 };
 
 extern log_buffer *g_log_buffer; /* initialize with log socket and assign */
 
 extern size_t g_log_cursor;
 extern wrapped_buffer<uint8_t> g_log_store;
+
+void log_watcher(ev::timer &w, int /*revents*/);
 
 template <typename T>
 void g_log_inner(wrapped_buffer<uint8_t> &wbuf, size_t &len, const T &s) {
