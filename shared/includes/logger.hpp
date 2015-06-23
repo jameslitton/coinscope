@@ -167,8 +167,14 @@ void g_log(const std::string &val, Targs... Fargs) {
 
 	ptr += 4; /* leave room for the length to be written */
 
-	std::copy((uint8_t*)& (g_log_buffer->id_netorder), (uint8_t*)(&(g_log_buffer->id_netorder)) + 4, ptr);
-	ptr += 4;
+	if (g_log_buffer) {
+		std::copy((uint8_t*)& (g_log_buffer->id_netorder),
+		          (uint8_t*)(&(g_log_buffer->id_netorder)) + (sizeof(g_log_buffer->id_netorder)), ptr);
+	} else {
+		uint8_t buffer[sizeof(g_log_buffer->id_netorder)] = {0};
+		std::copy(buffer, buffer + sizeof(g_log_buffer->id_netorder), ptr);
+	}
+	ptr += sizeof(g_log_buffer->id_netorder);
 
 	std::copy((uint8_t*)&n, (uint8_t*)(&n) + 1, ptr);
 	ptr += 1;

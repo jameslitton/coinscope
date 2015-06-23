@@ -51,7 +51,7 @@ static const sockaddr_in * external_addr() { // This picks an externally bound a
 	}
 	const libconfig::Config *cfg(get_config());
 
-	libconfig::Setting &list = cfg->lookup("connector.bitcoin.listeners");
+	libconfig::Setting &list = cfg->lookup("connectors.broadcast");
 	size_t idx;
 	if (list.getLength() == 1) {
 		idx = 0;
@@ -81,9 +81,9 @@ static double get_randping() {
 	static normal_distribution<double> *dist(nullptr);
 	if (dist == nullptr) {
 		const libconfig::Config *cfg(get_config());	
-		double mean = cfg->lookup("connector.bitcoin.active_ping.mean");
+		double mean = cfg->lookup("connectors.bitcoin.active_ping.mean");
 		g_active_ping_iv = mean; /* it's just used really as a status flag */
-		double stddev = cfg->lookup("connector.bitcoin.active_ping.stddev");
+		double stddev = cfg->lookup("connectors.bitcoin.active_ping.stddev");
 		dist = new normal_distribution<double>(mean, stddev);
 	}
 	double rv((*dist)(gen));
@@ -285,10 +285,10 @@ void handler::start_pingers() {
 
 	if (g_ping_iv < 0 || g_active_ping_iv < 0) {
 		const libconfig::Config *cfg(get_config());
-		int pf = cfg->lookup("connector.bitcoin.ping_frequency");
+		int pf = cfg->lookup("connectors.bitcoin.ping_frequency");
 		g_ping_iv = max(0, pf);
 
-		double pm = cfg->lookup("connector.bitcoin.active_ping.mean");
+		double pm = cfg->lookup("connectors.bitcoin.active_ping.mean");
 		g_active_ping_iv = max(0.0, pm);
 	}
 

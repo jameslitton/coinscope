@@ -74,7 +74,7 @@ void standup_getup_children(char *argv[], const int *which) { /* which is termin
 	const libconfig::Config *cfg(get_config());
 
 	for(;*which >= 0; ++which) {
-		cerr << "Doing " << *which << endl;
+		assert(*which <= 8); /* currently only support 3 bits in the handle id spread */
 		int sv[2];
 		if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) {
 			throw network_error(strerror(errno), errno);
@@ -113,8 +113,10 @@ void standup_getup_children(char *argv[], const int *which) { /* which is termin
 			path += "/main";
 			string config_arg("--configfile="); config_arg += string("=") + ((const char*)cfg->lookup("version").getSourceFile());
 			string daemon_arg("--daemonize=0");
+			string inst_arg("--instance=");
+			inst_arg += '0' + *which;
 			string tom_arg("--tom=1");
-			execl(path.c_str(), config_arg.c_str(), daemon_arg.c_str(), tom_arg.c_str(), (char*)NULL);
+			execl(path.c_str(), config_arg.c_str(), daemon_arg.c_str(), inst_arg.c_str(), tom_arg.c_str(), (char*)NULL);
 			throw runtime_error(strerror(errno));
 		}
 	}

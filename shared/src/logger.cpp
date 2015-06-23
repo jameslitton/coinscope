@@ -123,8 +123,15 @@ template <> void g_log<BITCOIN>(uint32_t update_type, uint32_t handle_id, const 
 	copy((uint8_t*) &netlen, ((uint8_t*)&netlen) + 4, cur_ptr);
 	cur_ptr += 4;
 
-	copy((uint8_t*)& (g_log_buffer->id_netorder), (uint8_t*)(&(g_log_buffer->id_netorder)) + 4, cur_ptr);
-	cur_ptr += 4;
+	if (g_log_buffer) {
+		std::copy((uint8_t*)& (g_log_buffer->id_netorder),
+		          (uint8_t*)(&(g_log_buffer->id_netorder)) + (sizeof(g_log_buffer->id_netorder)), cur_ptr);
+	} else {
+		uint8_t buffer[sizeof(g_log_buffer->id_netorder)] = {0};
+		std::copy(buffer, buffer + sizeof(g_log_buffer->id_netorder), cur_ptr);
+	}
+	cur_ptr += sizeof(g_log_buffer->id_netorder);
+
 
 	uint8_t typ = BITCOIN;
 	copy((uint8_t*) &typ, ((uint8_t*) &typ) + 1, cur_ptr);
@@ -186,8 +193,15 @@ template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bi
 	copy((uint8_t*) &netlen, ((uint8_t*)&netlen) + 4, cur_ptr);
 	cur_ptr += 4;
 
-	copy((uint8_t*)& (g_log_buffer->id_netorder), (uint8_t*)(&(g_log_buffer->id_netorder)) + 4, cur_ptr);
-	cur_ptr += 4;
+
+	if (g_log_buffer) {
+		std::copy((uint8_t*)& (g_log_buffer->id_netorder),
+		          (uint8_t*)(&(g_log_buffer->id_netorder)) + (sizeof(g_log_buffer->id_netorder)), cur_ptr);
+	} else {
+		uint8_t buffer[sizeof(g_log_buffer->id_netorder)] = {0};
+		std::copy(buffer, buffer + sizeof(g_log_buffer->id_netorder), cur_ptr);
+	}
+	cur_ptr += sizeof(g_log_buffer->id_netorder);
 
 	uint8_t typ = BITCOIN_MSG;
 	copy((uint8_t*) &typ, ((uint8_t*) &typ) + 1, cur_ptr);

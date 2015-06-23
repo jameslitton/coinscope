@@ -36,6 +36,7 @@
 #include "network.hpp"
 #include "config.hpp"
 #include "blacklist.hpp"
+#include "main.hpp"
 
 using namespace std;
 
@@ -99,6 +100,9 @@ static void hup_watcher(ev::sig & /*s*/, int /* revents */) {
 
 #define TOM_FD 3
 
+int g_instance_id;
+bool g_is_tom;
+
 int main(int argc, char *argv[]) {
 
 	/* check limits or no point */
@@ -115,40 +119,24 @@ int main(int argc, char *argv[]) {
 	}
 
 
-	bool is_tom = false;
-	if (startup_setup(argc, argv, true, &is_tom) != 0) {
+	if (startup_setup(argc, argv, true, &g_instance_id, &g_is_tom) != 0) {
 		return EXIT_FAILURE;
 	}
 
+
 	const libconfig::Config *cfg(get_config());
 
-	int config_idx(0);
-	if (is_tom) {
-		/* communicate with GC to get connector address */
-		cerr << "\nI am a child that was launched with tom on: " << getpid() << "\n";
-		char buffer[sizeof(int)];
-		size_t needed = sizeof(buffer);
-		while(needed) {
-			ssize_t got = recv(TOM_FD, buffer + sizeof(buffer) - needed, needed, 0);
-			if (got > 0) {
-				needed -= got;
-			} else if (got < 0) {
-				cerr << "Failed to receive id: " << strerror(errno) << endl;
-				return EXIT_FAILURE;
-			}
-		}
-		config_idx = ntoh(*((int*) buffer));
-		cerr << "Id I got was: " << config_idx << endl;
-	} else {
-		/* do non GC version */
-		cerr << "\nI am a child that was launched with tom off: " << getpid() << endl;
+	string config_path("connectors.instances.[");
+	config_path += ('0' + g_instance_id);
+	config_path += ']';
+
+
+	if (((double) cfg->lookup("version")) < 1.0) {
+		cerr << "Config must be greater than 1.0\n";
+		return EXIT_FAILURE;
 	}
 
-	cerr << getpid() << " exiting with tom " << is_tom << endl;
 
-	return 0;
-		
-	const char *config_file = cfg->lookup("version").getSourceFile();
 
 	signal(SIGPIPE, SIG_IGN);
 
@@ -172,7 +160,7 @@ int main(int argc, char *argv[]) {
 	sigwatch.set(SIGHUP);
 	sigwatch.start();
 
-	const char *control_filename = cfg->lookup("connector.control_path");
+	const char *control_filename((const char*) cfg->lookup(config_path + ".control_path"));
 	unlink(control_filename);
 
 	struct sockaddr_un control_addr;
@@ -184,14 +172,14 @@ int main(int argc, char *argv[]) {
 	fcntl(control_sock, F_SETFL, O_NONBLOCK);
 	Bind(control_sock, (struct sockaddr*)&control_addr, strlen(control_addr.sun_path) + 
 	     sizeof(control_addr.sun_family));
-	Listen(control_sock, cfg->lookup("connector.control_listen"));
+	Listen(control_sock, cfg->lookup(config_path + ".control_listen"));
 
 	ev::default_loop loop;
 
 
 	vector<unique_ptr<bc::accept_handler> > bc_accept_handlers; /* form is to get around some move semantics with ev::io I don't want to muck it up */
 
-	libconfig::Setting &list = cfg->lookup("connector.bitcoin.listeners");
+	const libconfig::Setting &list = cfg->lookup(config_path + ".bitcoin.listeners");
 	for(int index = 0; index < list.getLength(); ++index) {
 		libconfig::Setting &setting = list[index];
 		string family((const char*)setting[0]);
@@ -216,9 +204,10 @@ int main(int argc, char *argv[]) {
 			continue;
 		}
 
+		cerr << "WARNING, INADDR hack disabled. "
+		     << "Verify that incoming connections work on this particular machine's configuration\n";
 		/* TEMPORARY HACK!!!! This is because on EC2 the local interface is not the same as the public interface */
-		bitcoin_addr.sin_addr.s_addr = INADDR_ANY;
-		cerr << "Fix INADDR_ANY. Just comment out and verify good now\n";
+		//bitcoin_addr.sin_addr.s_addr = INADDR_ANY;
 
 
 		int bitcoin_sock = Socket(AF_INET, SOCK_STREAM, 0);
@@ -237,6 +226,7 @@ int main(int argc, char *argv[]) {
 
 
 	{
+		const char *config_file = cfg->lookup("version").getSourceFile();
 		ifstream cfile(config_file);
 		string s("");
 		string line;
@@ -245,11 +235,17 @@ int main(int argc, char *argv[]) {
 		}
 		g_log<CONNECTOR>("Initiating with commit: ", commit_hash);
 		g_log<CONNECTOR>("Full config: ", s);
+		g_log<CONNECTOR>("Is Major Tom: ", g_is_tom);
+		g_log<CONNECTOR>("Instance ID: ", g_instance_id);
 		cfile.close();
 	}
 
 	load_blacklist();
 	
+	return 0;
+
+
+
 	while(true) {
 		/* add timer to attempt recreation of lost control channel */
 		loop.run();
