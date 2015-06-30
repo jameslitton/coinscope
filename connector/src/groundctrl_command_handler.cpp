@@ -9,13 +9,18 @@
 #include <fcntl.h>
 
 #include "command_handler.hpp"
+#include "connector.hpp"
 #include "netwrap.hpp"
 #include "network.hpp"
 #include "logger.hpp"
+#include "child_handler.hpp"
+#include "main.hpp"
 
 using namespace std;
 
 namespace bc = bitcoin;
+
+extern map<int, child_handler> g_childmap; /* idx -> child_handler */
 
 namespace ctrl {
 
@@ -24,56 +29,101 @@ handler_set g_active_handlers;
 handler_set g_inactive_handlers;
 
 
-#define SOURCE_BITS 3
+/* right now this does particular commands synchronously. Most
+ * connector commands are already asynchronous by design, so this
+ * primarily affects a few like COMMAND_GET_CXN.  */
 
-map<uint32_t, uint32_t> g_source_mask; /* for v0 people, mapping source_id to higher SOURCE_BITS mask */
 
-uint32_t handler::id_pool = 0; /* must all fit in [0, 2^SOURCE_BITS] if we want v0 compatibility, otherwise full range */
+uint32_t handler::id_pool = 0;
 
-map<uint32_t, map<uint32_t, uint32_t> > g_messages; /* handle_id, local_msg_id, remote_msg_id */
 
 handler::~handler() {
-	g_messages.erase(id);
 	if (io.fd >= 0) {
 		close(io.fd);
 		io.stop();
 	}
 }
 
-void handler::handle_message_recv(const struct command_msg *msg/*, uint8_t version */) { 
+void handler::handle_message_recv(const struct command_msg *msg) { 
 	vector<uint8_t> out;
 
 	if (msg->command == COMMAND_GET_CXN) {
-		/* GC ask all connector for their connections and send them all back. Take version into account!  */
-		g_log<CTRL>("All connections requested", regid);
+		g_log<GROUND>("All connections requested from GC", regid);
 		/* format is struct connection_info or struct connection_info_v1 */
 
 		/* call each connector command_get_cxn and pack in source_id, get the results (async?), and send back the results */
-		//write_queue.append(buffer, sizeof(len) + bc::g_active_handlers.size() * sizeof(struct connection_info));
+
+		easy::command_msg msg(COMMAND_GET_CXN, 0, nullptr, 0);
+		std::pair<wrapped_buffer<uint8_t>, size_t> contents = msg.serialize();
+		map<int, child_handler> g_childmap; /* idx -> child_handler */
+		vector<std::pair< wrapped_buffer<uint8_t>, size_t > >buffers;
+		uint32_t total = 0;
+		for(auto &p : g_childmap) {
+			auto & child = p.second;
+			child.send(contents.first, contents.second);
+			uint32_t len;
+			wrapped_buffer<uint8_t> buf(child.recv(sizeof(len)));
+			memcpy((uint8_t*) &len, buf.const_ptr(), sizeof(len));
+			len = ntoh(len);
+			buffers.emplace_back(child.recv(len), len);
+			total += len;
+		}
+
+		wrapped_buffer<uint8_t> buffer(sizeof(total));
+		total = hton(total);
+		memcpy((uint8_t*) buffer.ptr(), &total, sizeof(total));
+		write_queue.append(buffer, sizeof(total));
+
+		for(auto it : buffers) {
+			write_queue.append(it.first, it.second);
+		}
+
 		state |= SEND_MESSAGE;
 
 	} else if (msg->command == COMMAND_SEND_MSG) {
 		/* GC for each connector, map message_id to connector message_id and relay transformed message. Version means use a different foreach_handlers function */
 		uint32_t message_id = ntoh(msg->message_id);
-		auto it = g_messages[this->id].find(message_id);
-		if (it == g_messages[this->id].end()) {
-			g_log<ERROR>("invalid message id", message_id);
-		} else {
-			/*
-			wrapped_buffer<uint8_t> packed(it->second.get_buffer());
-			foreach_handlers(msg, [&](pair<const uint32_t, unique_ptr<bc::handler> > &p) {
-					p.second->append_for_write(packed);
-				});
-			*/
+
+		/* maybe just make this non-const...*/
+		wrapped_buffer<uint8_t> buffer(sizeof(*msg) + 4*ntoh(msg->target_cnt));
+		command_msg *cmsg = (command_msg*) buffer.ptr();
+		memcpy(cmsg, msg, sizeof(*msg) + 4*ntoh(msg->target_cnt));
+
+		for(auto &p : g_childmap) {
+			auto & child = p.second;
+			auto it = child.messages.find(message_id);
+			if (it == child.messages.end()) {
+				/* these don't have to be instance based, since we will
+				 * always always only have one connection per child */
+				g_log<ERROR>("invalid message id ", message_id, " for child ", p.first);
+			}
+			cmsg->message_id = it->second;
+			child.send(cmsg, sizeof(cmsg) + 4 * ntoh(cmsg->target_cnt));
 		}
+
+
 	} else if (msg->command == COMMAND_DISCONNECT) {
-		/* GC Go to the connector that has a given id and issue the disconnect. Perhaps have each connector use the high X bits to handle their id. Version means different foreach */
-		g_log<DEBUG>("disconnect command received");
-		/*
-		foreach_handlers(msg, [](pair<const uint32_t, unique_ptr<bc::handler> > &p) {
-				p.second->disconnect();
-			});
-		*/
+		uint32_t target_cnt(ntoh(msg->target_cnt));
+		if (target_cnt == 1 && msg->targets[0] == BROADCAST_TARGET) {
+			for(auto &p : g_childmap) {
+				auto &child = p.second;
+				child.send(msg, sizeof(*msg) + 4 * target_cnt);
+			}
+		} else {
+			map<uint32_t , vector<uint32_t> > targs; /* instance_id -> target_id (host order) */
+			for(uint32_t i = 0; i < target_cnt; ++i) {
+				uint32_t target(ntoh(msg->targets[i]));
+				uint32_t instance = target >> (32-TOM_FD_BITS);
+				targs[instance].push_back(target);
+			}
+			for(auto &p : g_childmap) {
+				auto &idx = p.first;
+				auto &child = p.second;
+				easy::command_msg cmsg(COMMAND_DISCONNECT, 0, targs[idx]);
+				pair<wrapped_buffer<uint8_t>, size_t> s(cmsg.serialize());
+				child.send(s.first, s.second);
+			}
+		}
 	} else {
 		g_log<CTRL>("UNKNOWN COMMAND_MSG COMMAND: ", msg->command);
 	}
@@ -92,6 +142,7 @@ void handler::receive_header() {
 	}
 	if (read_queue.to_read() == 0) { /* payload is packed message */
 		if (msg->message_type == REGISTER) {
+#if 0
 			/* GC who cares */
 			uint32_t oldid = regid;
 			/* changing id and sending it. */
@@ -104,6 +155,7 @@ void handler::receive_header() {
 			g_messages.erase(oldid);
 			/* msg->payload should be zero length here */
 			/* send back their new user id */
+#endif
 		} else {
 			ostringstream oss("Unknown message: ");
 			oss << msg;
@@ -133,6 +185,7 @@ void handler::receive_payload() {
 	case BITCOIN_PACKED_MESSAGE:
 		/* GC register message with each connector, map their ids to a single id and send that back */
 		{
+#if 0
 			const struct bitcoin::packed_message *bc_msg = (struct bitcoin::packed_message *) msg->payload;
 			uint32_t netid = 0;
 			if (ntoh(msg->length) < sizeof(struct bitcoin::packed_message) || 
@@ -153,6 +206,7 @@ void handler::receive_payload() {
 			}
 			write_queue.append((uint8_t*)&netid, sizeof(netid));
 			state |= SEND_MESSAGE;
+#endif
 		}
 		break;
 	case COMMAND:

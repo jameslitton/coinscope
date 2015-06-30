@@ -11,5 +11,5 @@ clean_extra:
 
 main: main.cpp bitcoin_handler.o command_handler.o $(SHARED)
 
-groundctrl: groundctrl.cpp groundctrl_command_handler.o $(SHARED)
+groundctrl: groundctrl.cpp groundctrl_command_handler.o child_handler.o ../shared/connector.o $(SHARED)
 

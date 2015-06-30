@@ -14,6 +14,7 @@
 
 
 enum log_type {
+	GROUND=0x1, /* message is from GROUND, unbuffered */
 	DEBUG=0x2, /* interpret as a string, unbuffered */
 	CTRL=0x4, /* control messages, unbuffered */
 	ERROR=0x8, /* strings, unbuffered */
@@ -21,7 +22,6 @@ enum log_type {
 	BITCOIN_MSG=0x20, /* actual incoming/outgoing messages as encoded, buffered */
 	CONNECTOR=0x40, /* connector status messages, unbuffered */
 	CLIENT=0x80, /* client status messages, unbuffered */
-	GROUND_CTRL=0x100, /* client status messages, unbuffered */
 };
 
 

@@ -81,7 +81,6 @@ int startup_setup(int argc, char * argv[], bool do_perms, int *instance, bool *i
 
    if (instance) {
 	   *instance = pvm["instance"].as<int>();
-	   assert(*instance <= 8 && *instance >= 0);
    }
 
    if (is_tom) {

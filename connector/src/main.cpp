@@ -123,6 +123,11 @@ int main(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
+	if (g_is_tom && (g_instance_id >= (1 << TOM_FD_BITS) || g_instance_id < 0)) {
+		cerr << "Invalid instance id. Must fit within bit range set in main.hpp\n";
+		return EXIT_FAILURE;
+	}
+
 
 	const libconfig::Config *cfg(get_config());
 
@@ -223,6 +228,14 @@ int main(int argc, char *argv[]) {
 
 
 	ctrl::accept_handler ctrl_handler(control_sock);
+
+	if (g_is_tom) { /* fd GC_FD is already accepted, so just set up its handler */
+		if (fcntl(GC_FD, F_SETFL, O_NONBLOCK) == -1) {
+			cerr << "Error setting GC socket to nonblocking: " << strerror(errno) << endl;
+			abort();
+		}
+		ctrl::g_active_handlers.insert(new ctrl::handler(3));
+	}
 
 
 	{

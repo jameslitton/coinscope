@@ -281,6 +281,9 @@ string type_to_str(enum log_type type) {
 	case CTRL:
 		return "CTRL";
 		break;
+	case GROUND:
+		return "GROUND";
+		break;
 	case ERROR:
 		return "ERROR";
 		break;
@@ -295,9 +298,6 @@ string type_to_str(enum log_type type) {
 		break;
 	case CLIENT:
 		return "CLIENT";
-		break;
-	case GROUND_CTRL:
-		return "GROUND_CTRL";
 		break;
 	default:
 		return "UNKNOWN";

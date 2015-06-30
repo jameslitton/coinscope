@@ -16,6 +16,7 @@
 #include "config.hpp"
 #include "crypto.hpp"
 #include "blacklist.hpp"
+#include "main.hpp"
 
 using namespace std;
 
@@ -257,6 +258,13 @@ handler::handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_ad
 {
 
 	ostringstream oss;
+	if (g_is_tom) { /* have to overload the higher bits */
+		if (id > (~0u >> TOM_FD_BITS)) {
+			id = 0;
+		}
+		id |= (g_instance_id << (32 - TOM_FD_BITS));
+	}
+
 	
 	io.set<handler, &handler::io_cb>(this);
 	if (a_state == SEND_VERSION_INIT) { /* we initiated the connection */

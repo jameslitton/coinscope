@@ -37,6 +37,7 @@ inline uint64_t hton(uint64_t x) {
 	return htobe64(x);
 }
 
+
 struct sockaddr_un;
 
 int unix_sock_setup(const std::string &path, struct sockaddr_un *addr, bool nonblocking);

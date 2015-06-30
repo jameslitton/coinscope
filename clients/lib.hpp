@@ -9,6 +9,7 @@
 #include <functional>
 
 #include "network.hpp"
+#include "netwrap.hpp"
 #include "command_structures.hpp"
 
 
@@ -48,18 +49,8 @@ struct sockaddr_keyeq {
 
 /* blocking writer, but EINTR can happen */
 inline void do_write(int fd, const void *ptr, size_t len) {
-	size_t so_far = 0;
-	do {
-		ssize_t r = write(fd, (const char *)ptr + so_far, len - so_far);
-		if (r > 0) {
-			so_far += r;
-		} else if (r < 0) {
-			assert(errno != EAGAIN && errno != EWOULDBLOCK); /* don't use this with non-blockers */
-			if (errno != EINTR) {
-				throw std::runtime_error(strerror(errno));
-			}
-		}
-	} while ( so_far < len);
+	send_n(fd, ptr, len);
+	/* functionality moved to netwrap.hpp and renamed */
 }
 
 

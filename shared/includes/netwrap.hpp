@@ -79,4 +79,43 @@ inline pid_t Fork() {
 	return rv;
 }
 
+
+/* blocking writer, but EINTR can happen */
+inline void send_n(int fd, const void *ptr, size_t len) {
+	size_t so_far = 0;
+	do {
+		ssize_t r = send(fd, (const char *)ptr + so_far, len - so_far, MSG_NOSIGNAL);
+		if (r > 0) {
+			so_far += r;
+		} else if (r < 0) {
+			assert(errno != EAGAIN && errno != EWOULDBLOCK); /* don't use this with non-blockers */
+			if (errno != EINTR) {
+				throw std::runtime_error(strerror(errno));
+			}
+		}
+	} while ( so_far < len);
+}
+
+
+/* blocking writer, but EINTR can happen */
+inline void recv_n(int fd, void *ptr, size_t len) {
+	size_t so_far = 0;
+	do {
+		ssize_t r = recv(fd, (char *)ptr + so_far, len - so_far, MSG_WAITALL);
+		if (r > 0) {
+			so_far += r;
+		} else if (r < 0) {
+			assert(errno != EAGAIN && errno != EWOULDBLOCK); /* don't use this with non-blockers */
+			if (errno != EINTR) {
+				throw std::runtime_error(strerror(errno));
+			}
+		} else { /* r == 0, disconnected */
+			throw std::runtime_error("Socket disconnected");
+		}
+	} while ( so_far < len);
+}
+
+
+
+
 #endif
