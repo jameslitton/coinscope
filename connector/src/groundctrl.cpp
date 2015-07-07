@@ -20,6 +20,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <signal.h>
+#include <sys/prctl.h>
 #include <sys/resource.h>
 #include <libgen.h>
 
@@ -64,6 +65,8 @@ void standup_getup_children(char *argv[], const int *which) { /* which is termin
 			g_childmap[ *which ] = child_handler(pid, sv[0]);
 
 		} else { /* in child */
+			prctl(PR_SET_PDEATHSIG, SIGKILL);
+		
 			// We will assume file descriptor GC_FD is the channel for the
 			// child, so map sv[1] to be the child descriptor
 			if (dup2(sv[1], GC_FD) != GC_FD) {
@@ -72,12 +75,12 @@ void standup_getup_children(char *argv[], const int *which) { /* which is termin
 			/* this is cludgy, but who cares */
 			string path(dirname(argv[0]));
 			path += "/main";
-			string config_arg("--configfile="); config_arg += string("=") + ((const char*)cfg->lookup("version").getSourceFile());
+			string config_arg("--configfile="); config_arg += ((const char*)cfg->lookup("version").getSourceFile());
 			string daemon_arg("--daemonize=0");
 			string inst_arg("--instance=");
 			inst_arg += '0' + *which;
 			string tom_arg("--tom=1");
-			execl(path.c_str(), config_arg.c_str(), daemon_arg.c_str(), inst_arg.c_str(), tom_arg.c_str(), (char*)NULL);
+			execl(path.c_str(), path.c_str(), config_arg.c_str(), daemon_arg.c_str(), inst_arg.c_str(), tom_arg.c_str(), (char*)NULL);
 			throw runtime_error(strerror(errno));
 		}
 	}
@@ -103,8 +106,12 @@ int main(int argc, char *argv[]) {
 	   and sterr are open right now. If this changes, cleanup in this
 	   function. */
 	int which[] = {0,1,-1};
-	standup_getup_children(argv,which);
 	/* TODO: read WHICH out of netmine.cfg, and reap/watch children exits */
+	/* TODO: check if any children are already running and just connect
+	   on that channel. Note, you'd have to clear prctl in the
+	   following function */
+	standup_getup_children(argv,which);
+
 
 	string root((const char*)cfg->lookup("logger.root"));
 	string logpath = root + "servers";
