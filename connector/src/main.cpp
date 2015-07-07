@@ -255,8 +255,6 @@ int main(int argc, char *argv[]) {
 
 	load_blacklist();
 	
-	return 0;
-
 
 
 	while(true) {
