@@ -33,7 +33,6 @@ private:
 
 
 	uint32_t id;
-	uint32_t regid;
 	ev::io io;
 
 	static uint32_t id_pool;
@@ -45,7 +44,6 @@ public:
 		  write_queue(),
 		  state(RECV_HEADER), 
 		  id(id_pool++), 
-		  regid(nonce_gen32()),
 		  io()
 	{
 		io.set<handler, &handler::io_cb>(this);
@@ -53,7 +51,6 @@ public:
 		io.start();
 	}
 	uint32_t get_id() const { return id; };
-	uint32_t get_regid() const { return regid;};
 	void receive_header();
 	void receive_payload();
 	void handle_message_recv(const struct command_msg *msg);

@@ -17,9 +17,10 @@ public:
 	void send(const void *buf, size_t len);
 	void send(const wrapped_buffer<uint8_t> buf, size_t len);
 	wrapped_buffer<uint8_t> recv(size_t len);
+	pid_t get_pid() const { return pid; }
 	~child_handler();
 
-	std::map<uint32_t, uint32_t> messages;
+	std::map<uint32_t, uint32_t> messages; /* local message_id -> remote message_id */
 
 private:
 	child_handler & operator=(const child_handler &other);

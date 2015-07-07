@@ -45,7 +45,7 @@ public:
 };
 
 /* TODO, make a vector of registered_messages */
-map<uint32_t, map<uint32_t, registered_msg> > g_messages; /* handle_id, register_id, mesg */
+map<uint32_t, map<uint32_t, registered_msg> > g_messages; /* handle_id, message_id, mesg */
 
 
 handler::~handler() {
@@ -80,48 +80,72 @@ void foreach_handlers(const struct command_msg *msg, std::function<void(pair<con
 void handler::handle_message_recv(const struct command_msg *msg) { 
 	vector<uint8_t> out;
 
-	if (msg->command == COMMAND_GET_CXN) {
-		g_log<CTRL>("All connections requested", regid);
-		/* format is struct connection_info */
+	switch(msg->command) {
+	case COMMAND_GET_CXN:
+		{
+			g_log<CTRL>("All connections requested", id);
+			/* format is struct connection_info */
 
-		wrapped_buffer<uint8_t> buffer;
-		buffer.realloc(sizeof(uint32_t) + bc::g_active_handlers.size() * sizeof(struct connection_info));
-		/* I could append these piecemeal to the write_queue, but this would cause more allocations/gc. This does it as one big chunk in the list,
-		   which for an active connector should be one mmapped
-		   segment */
-		uint8_t *writebuf = buffer.ptr();
-		uint32_t len = sizeof(struct connection_info) * bc::g_active_handlers.size();
-		len = hton(len);
-		memcpy(writebuf, &len, sizeof(len));
-		writebuf += sizeof(len);
-		for(bc::handler_map::const_iterator it = bc::g_active_handlers.cbegin(); it != bc::g_active_handlers.cend(); ++it) {
-			struct connection_info out;
-			out.handle_id = hton(it->first);
-			out.remote_addr = it->second->get_remote_addr();
-			out.local_addr = it->second->get_local_addr();
-			memcpy(writebuf, &out, sizeof(out));
-			writebuf += sizeof(out);
+			wrapped_buffer<uint8_t> buffer;
+			buffer.realloc(sizeof(uint32_t) + bc::g_active_handlers.size() * sizeof(struct connection_info));
+			/* I could append these piecemeal to the write_queue, but this would cause more allocations/gc. This does it as one big chunk in the list,
+			   which for an active connector should be one mmapped
+			   segment */
+			uint8_t *writebuf = buffer.ptr();
+			uint32_t len = sizeof(struct connection_info) * bc::g_active_handlers.size();
+			len = hton(len);
+			memcpy(writebuf, &len, sizeof(len));
+			writebuf += sizeof(len);
+			for(bc::handler_map::const_iterator it = bc::g_active_handlers.cbegin(); it != bc::g_active_handlers.cend(); ++it) {
+				struct connection_info out;
+				out.handle_id = hton(it->first);
+				out.remote_addr = it->second->get_remote_addr();
+				out.local_addr = it->second->get_local_addr();
+				memcpy(writebuf, &out, sizeof(out));
+				writebuf += sizeof(out);
+			}
+			write_queue.append(buffer, sizeof(len) + bc::g_active_handlers.size() * sizeof(struct connection_info));
+			state |= SEND_MESSAGE;
 		}
-		write_queue.append(buffer, sizeof(len) + bc::g_active_handlers.size() * sizeof(struct connection_info));
-		state |= SEND_MESSAGE;
-	} else if (msg->command == COMMAND_SEND_MSG) {
-		uint32_t message_id = ntoh(msg->message_id);
-		auto it = g_messages[this->id].find(message_id);
-		if (it == g_messages[this->id].end()) {
-			g_log<ERROR>("invalid message id", message_id);
-		} else {
-			wrapped_buffer<uint8_t> packed(it->second.get_buffer());
-			foreach_handlers(msg, [&](pair<const uint32_t, unique_ptr<bc::handler> > &p) {
-					p.second->append_for_write(packed);
+		break;
+	case COMMAND_SEND_MSG:
+		{
+			uint32_t message_id = ntoh(msg->message_id);
+			auto it = g_messages[this->id].find(message_id);
+			if (it == g_messages[this->id].end()) {
+				g_log<ERROR>("invalid message id", message_id);
+			} else {
+				wrapped_buffer<uint8_t> packed(it->second.get_buffer());
+				foreach_handlers(msg, [&](pair<const uint32_t, unique_ptr<bc::handler> > &p) {
+						p.second->append_for_write(packed);
+					});
+			}
+		}
+		break;
+	case COMMAND_DISCONNECT:
+		{
+			g_log<DEBUG>("disconnect command received");
+			foreach_handlers(msg, [](pair<const uint32_t, unique_ptr<bc::handler> > &p) {
+					p.second->disconnect();
 				});
 		}
-	} else if (msg->command == COMMAND_DISCONNECT) {
-		g_log<DEBUG>("disconnect command received");
-		foreach_handlers(msg, [](pair<const uint32_t, unique_ptr<bc::handler> > &p) {
-				p.second->disconnect();
-			});
-	} else {
-		g_log<CTRL>("UNKNOWN COMMAND_MSG COMMAND: ", msg->command);
+		break;
+	case COMMAND_DELETE_MSG:
+		{
+			uint32_t message_id = ntoh(msg->message_id);
+			auto it = g_messages[this->id].find(message_id);
+			if (it == g_messages[this->id].end()) {
+				g_log<ERROR>("invalid message id on delete ", message_id);
+			} else {
+				g_messages[this->id].erase(message_id);
+			}
+		}
+		break;
+	default:
+		{
+			g_log<CTRL>("UNKNOWN COMMAND_MSG COMMAND: ", msg->command);
+		}
+		break;
 	}
 }
 
@@ -138,15 +162,18 @@ void handler::receive_header() {
 	}
 	if (read_queue.to_read() == 0) { /* payload is packed message */
 		if (msg->message_type == REGISTER) {
-			uint32_t oldid = regid;
+			g_log<DEBUG>("REGISTER command iffy/deprecated. I think it was bugged so I made changes. Be wary! Let me know if you use this and it is ok");
+			g_active_handlers.erase(this);
+			uint32_t oldid = id;
 			/* changing id and sending it. */
-			regid = nonce_gen32();
+			id = id_pool++;
 			g_log<CTRL>("UNREGISTERING", oldid);
-			g_log<CTRL>("REGISTERING", regid);
-			uint32_t netorder = hton(regid);
+			g_log<CTRL>("REGISTERING", id);
+			uint32_t netorder = hton(id);
 			write_queue.append((uint8_t*)&netorder, sizeof(netorder));
 			state |= SEND_MESSAGE;
 			g_messages.erase(oldid);
+			g_active_handlers.insert(this);
 			/* msg->payload should be zero length here */
 			/* send back their new user id */
 		} else {
@@ -186,10 +213,10 @@ void handler::receive_payload() {
 			} else {
 				uint32_t id = g_message_ids++;
 				auto pair = g_messages[this->id].insert(make_pair(id, registered_msg(msg)));
-				g_log<CTRL>("Registering message ", regid, (struct bitcoin::packed_message *) msg->payload);
+				g_log<CTRL>("Registering message ", id, (struct bitcoin::packed_message *) msg->payload);
 				if (pair.second) {
 					netid = hton(id);
-					g_log<CTRL>("message registered", regid, id);
+					g_log<CTRL>("message registered", id, id);
 				} else {
 					netid = 0;
 					g_log<ERROR>("Duplicate id generated, surprising");
@@ -208,7 +235,7 @@ void handler::receive_payload() {
 			/* format is remote packed_net_addr, local packed_net_addr */
 			/* currently local is ignored, but would be used if we bound to more than one interface */
 			struct connect_payload *payload = (struct connect_payload*) msg->payload;
-			g_log<CTRL>("Attempting to connect to", payload->remote_addr, "for", regid);
+			g_log<CTRL>("Attempting to connect to", payload->remote_addr, "for", id);
 
 			int fd(-1);
 			// TODO: setting local on the client does nothing, but could specify the interface used
@@ -230,7 +257,7 @@ void handler::receive_payload() {
 		}
 		break;
 	default:
-		g_log<CTRL>("unknown payload type", regid, msg);
+		g_log<CTRL>("unknown payload type", id, msg);
 		break;
 	}
 	read_queue.cursor(0);

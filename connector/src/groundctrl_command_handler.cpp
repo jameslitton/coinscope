@@ -47,85 +47,123 @@ handler::~handler() {
 void handler::handle_message_recv(const struct command_msg *msg) { 
 	vector<uint8_t> out;
 
-	if (msg->command == COMMAND_GET_CXN) {
-		g_log<GROUND>("All connections requested from GC", regid);
-		/* format is struct connection_info or struct connection_info_v1 */
+	switch(msg->command) {
+	case COMMAND_GET_CXN:
+		{
+			g_log<GROUND>("All connections requested from GC", id);
+			/* format is struct connection_info or struct connection_info_v1 */
 
-		/* call each connector command_get_cxn and pack in source_id, get the results (async?), and send back the results */
+			/* call each connector command_get_cxn and pack in source_id, get the results (async?), and send back the results */
 
-		easy::command_msg msg(COMMAND_GET_CXN, 0, nullptr, 0);
-		std::pair<wrapped_buffer<uint8_t>, size_t> contents = msg.serialize();
-		map<int, child_handler> g_childmap; /* idx -> child_handler */
-		vector<std::pair< wrapped_buffer<uint8_t>, size_t > >buffers;
-		uint32_t total = 0;
-		for(auto &p : g_childmap) {
-			auto & child = p.second;
-			child.send(contents.first, contents.second);
-			uint32_t len;
-			wrapped_buffer<uint8_t> buf(child.recv(sizeof(len)));
-			memcpy((uint8_t*) &len, buf.const_ptr(), sizeof(len));
-			len = ntoh(len);
-			buffers.emplace_back(child.recv(len), len);
-			total += len;
-		}
-
-		wrapped_buffer<uint8_t> buffer(sizeof(total));
-		total = hton(total);
-		memcpy((uint8_t*) buffer.ptr(), &total, sizeof(total));
-		write_queue.append(buffer, sizeof(total));
-
-		for(auto it : buffers) {
-			write_queue.append(it.first, it.second);
-		}
-
-		state |= SEND_MESSAGE;
-
-	} else if (msg->command == COMMAND_SEND_MSG) {
-		/* GC for each connector, map message_id to connector message_id and relay transformed message. Version means use a different foreach_handlers function */
-		uint32_t message_id = ntoh(msg->message_id);
-
-		/* maybe just make this non-const...*/
-		wrapped_buffer<uint8_t> buffer(sizeof(*msg) + 4*ntoh(msg->target_cnt));
-		command_msg *cmsg = (command_msg*) buffer.ptr();
-		memcpy(cmsg, msg, sizeof(*msg) + 4*ntoh(msg->target_cnt));
-
-		for(auto &p : g_childmap) {
-			auto & child = p.second;
-			auto it = child.messages.find(message_id);
-			if (it == child.messages.end()) {
-				/* these don't have to be instance based, since we will
-				 * always always only have one connection per child */
-				g_log<ERROR>("invalid message id ", message_id, " for child ", p.first);
-			}
-			cmsg->message_id = it->second;
-			child.send(cmsg, sizeof(cmsg) + 4 * ntoh(cmsg->target_cnt));
-		}
-
-
-	} else if (msg->command == COMMAND_DISCONNECT) {
-		uint32_t target_cnt(ntoh(msg->target_cnt));
-		if (target_cnt == 1 && msg->targets[0] == BROADCAST_TARGET) {
+			easy::command_msg msg(COMMAND_GET_CXN, 0, nullptr, 0);
+			std::pair<wrapped_buffer<uint8_t>, size_t> contents = msg.serialize();
+			vector<std::pair< wrapped_buffer<uint8_t>, size_t > >buffers;
+			uint32_t total = 0;
 			for(auto &p : g_childmap) {
-				auto &child = p.second;
-				child.send(msg, sizeof(*msg) + 4 * target_cnt);
+				auto & child = p.second;
+				child.send(contents.first, contents.second);
+				uint32_t len;
+				wrapped_buffer<uint8_t> buf(child.recv(sizeof(len)));
+				memcpy((uint8_t*) &len, buf.const_ptr(), sizeof(len));
+				len = ntoh(len);
+				buffers.emplace_back(child.recv(len), len);
+				total += len;
 			}
-		} else {
+
+			wrapped_buffer<uint8_t> buffer(sizeof(total));
+			total = hton(total);
+			memcpy((uint8_t*) buffer.ptr(), &total, sizeof(total));
+			write_queue.append(buffer, sizeof(total));
+
+			for(auto it : buffers) {
+				write_queue.append(it.first, it.second);
+			}
+
+			state |= SEND_MESSAGE;
+
+		}
+		break;
+	case COMMAND_SEND_MSG:
+		{
+			/* GC for each connector, map message_id to connector message_id and relay transformed message. Version means use a different foreach_handlers function */
+			uint32_t message_id = ntoh(msg->message_id);
+
+			struct easy::command_msg cmsg(COMMAND_SEND_MSG, 0, nullptr, 0);
 			map<uint32_t , vector<uint32_t> > targs; /* instance_id -> target_id (host order) */
+			uint32_t target_cnt(ntoh(msg->target_cnt));
 			for(uint32_t i = 0; i < target_cnt; ++i) {
 				uint32_t target(ntoh(msg->targets[i]));
 				uint32_t instance = target >> (32-TOM_FD_BITS);
 				targs[instance].push_back(target);
 			}
+
 			for(auto &p : g_childmap) {
 				auto &idx = p.first;
 				auto &child = p.second;
-				easy::command_msg cmsg(COMMAND_DISCONNECT, 0, targs[idx]);
-				pair<wrapped_buffer<uint8_t>, size_t> s(cmsg.serialize());
-				child.send(s.first, s.second);
+				auto it = child.messages.find(message_id);
+				if (it == child.messages.end()) {
+					g_log<ERROR>("Invalid message id mapping for pid ", child.get_pid(), " with id ", message_id);
+				} else {
+					cmsg.message_id(it->second);
+					cmsg.targets(targs[idx]);
+					pair<wrapped_buffer<uint8_t>, size_t> s(cmsg.serialize());
+					child.send(s.first, s.second);
+				}
+
+			}
+			
+		}
+		break;
+	case COMMAND_DELETE_MSG:
+		{
+			uint32_t message_id = ntoh(msg->message_id);
+			struct easy::command_msg cmsg(COMMAND_DELETE_MSG, 0, nullptr, 0);
+			for(auto &p : g_childmap) {
+				auto &child = p.second;
+				auto it = child.messages.find(message_id);
+				if (it == child.messages.end()) {
+					g_log<ERROR>("Message id ", message_id, " does not have a corresponding mid on connector with pid ", child.get_pid());
+				} else {
+					cmsg.message_id(it->second);
+					pair<wrapped_buffer<uint8_t>, size_t> pkg = cmsg.serialize();
+					child.send(pkg.first, pkg.second);
+					child.messages.erase(message_id);
+				}
+
 			}
 		}
-	} else {
+		break;
+	case COMMAND_DISCONNECT:
+		{
+			uint32_t target_cnt(ntoh(msg->target_cnt));
+			if (target_cnt == 1 && msg->targets[0] == BROADCAST_TARGET) {
+				easy::command_msg cmsg(COMMAND_DISCONNECT, 0, msg->targets, 1);
+				pair<wrapped_buffer<uint8_t>, size_t> s(cmsg.serialize());				
+				for(auto &p : g_childmap) {
+					auto &child = p.second;
+					child.send(s.first, s.second);
+				}
+
+			} else {
+				map<uint32_t , vector<uint32_t> > targs; /* instance_id -> target_id (host order) */
+				for(uint32_t i = 0; i < target_cnt; ++i) {
+					uint32_t target(ntoh(msg->targets[i]));
+					uint32_t instance = target >> (32-TOM_FD_BITS);
+					targs[instance].push_back(target);
+				}
+				for(auto &p : g_childmap) {
+					auto &idx = p.first;
+					auto &child = p.second;
+					easy::command_msg cmsg(COMMAND_DISCONNECT, 0, targs[idx]);
+					pair<wrapped_buffer<uint8_t>, size_t> s(cmsg.serialize());
+					child.send(s.first, s.second);
+				}
+			}
+		}
+		break;
+	default:
 		g_log<CTRL>("UNKNOWN COMMAND_MSG COMMAND: ", msg->command);
+		break;
 	}
 }
 
@@ -142,20 +180,43 @@ void handler::receive_header() {
 	}
 	if (read_queue.to_read() == 0) { /* payload is packed message */
 		if (msg->message_type == REGISTER) {
-#if 0
-			/* GC who cares */
-			uint32_t oldid = regid;
+
+			/* The point of this is to erase any messages that this
+			   particular client created because it rejogs its handle_id
+			   and each connector. This is sort of a side-effect result
+			   and is kind of misnamed and a misfeature. For bc this
+			   front-end has to change the handle_id, send the new_id,
+			   and effectively (somehow or another) cause the messages
+			   related to the old id to be cleared */
+
+			g_log<DEBUG>("REGISTER issued to GC. This is iffy/deprecated");
+
+			g_active_handlers.erase(this);
+			uint32_t oldid = id;
 			/* changing id and sending it. */
-			regid = nonce_gen32();
+
 			g_log<CTRL>("UNREGISTERING", oldid);
-			g_log<CTRL>("REGISTERING", regid);
-			uint32_t netorder = hton(regid);
+			g_log<CTRL>("REGISTERING", id);
+
+			uint32_t netorder = hton(id);
 			write_queue.append((uint8_t*)&netorder, sizeof(netorder));
 			state |= SEND_MESSAGE;
-			g_messages.erase(oldid);
-			/* msg->payload should be zero length here */
-			/* send back their new user id */
-#endif
+
+			id = id_pool++;
+
+			g_active_handlers.insert(this);
+
+			struct easy::command_msg cmsg(COMMAND_DELETE_MSG, 0, nullptr, 0);
+			for(auto &p : g_childmap) {
+				auto &child = p.second;
+				for(auto &mp : child.messages) {
+					cmsg.message_id(mp.second);
+					pair<wrapped_buffer<uint8_t>, size_t> pkg = cmsg.serialize();
+					child.send(pkg.first, pkg.second);
+				}
+				child.messages.clear();
+			}
+
 		} else {
 			ostringstream oss("Unknown message: ");
 			oss << msg;
@@ -185,29 +246,21 @@ void handler::receive_payload() {
 	case BITCOIN_PACKED_MESSAGE:
 		/* GC register message with each connector, map their ids to a single id and send that back */
 		{
-#if 0
-			const struct bitcoin::packed_message *bc_msg = (struct bitcoin::packed_message *) msg->payload;
-			uint32_t netid = 0;
-			if (ntoh(msg->length) < sizeof(struct bitcoin::packed_message) || 
-			    ntoh(msg->length) != sizeof(struct bitcoin::packed_message) + bc_msg->length) {
-				g_log<ERROR>("Attempted to register invalid message");
-			} else {
-				uint32_t id = g_message_ids++;
-				//auto pair = g_messages[this->id].insert(make_pair(id, registered_msg(msg)));
-				auto pair = g_messages[this->id].insert(make_pair(id, 5));
-				g_log<CTRL>("Registering message ", regid, (struct bitcoin::packed_message *) msg->payload);
-				if (pair.second) {
-					netid = hton(id);
-					g_log<CTRL>("message registered", regid, id);
-				} else {
-					netid = 0;
-					g_log<ERROR>("Duplicate id generated, surprising");
-				}
+			uint32_t local_message_id = g_message_ids++;
+					
+			for(auto &p : g_childmap) {
+				auto &child = p.second;
+				child.send(msg, sizeof(*msg) + ntoh(msg->length));
+				wrapped_buffer<uint8_t> buf(child.recv(4));
+				uint32_t message_id = ntoh( * ((uint32_t*) buf.const_ptr()));
+				child.messages[local_message_id] = message_id;
 			}
+
+			uint32_t netid(hton(local_message_id));
 			write_queue.append((uint8_t*)&netid, sizeof(netid));
 			state |= SEND_MESSAGE;
-#endif
 		}
+
 		break;
 	case COMMAND:
 		handle_message_recv((struct command_msg*) msg->payload/*, msg->version */);
@@ -215,34 +268,15 @@ void handler::receive_payload() {
 		break;
 	case CONNECT:
 		{
-			/* format is remote packed_net_addr, local packed_net_addr */
-			/* currently local is ignored, but would be used if we bound to more than one interface */
-			struct connect_payload *payload = (struct connect_payload*) msg->payload;
-			g_log<CTRL>("Attempting to connect to", payload->remote_addr, "for", regid);
+			/* TODO: have this more smartly load balance. For now, just cycle through */
+			auto it = g_childmap.begin();
+			advance(it, rand() % g_childmap.size());
+			it->second.send(msg, sizeof(*msg) + ntoh(msg->length));
 
-			throw "hell noes";
-
-			int fd(-1);
-			// TODO: setting local on the client does nothing, but could specify the interface used
-			try {
-				fd = Socket(AF_INET, SOCK_STREAM, 0);
-				fcntl(fd, F_SETFL, O_NONBLOCK);
-			} catch (network_error &e) {
-				if (fd >= 0) {
-					close(fd);
-					fd = -1;
-				}
-				g_log<ERROR>(e.what(), "(command_handler CONNECT)");
-			}
-
-			if (fd >= 0) {
-				/* yes, it dangles. It schedules itself for cleanup. yech */
-				//new bc::connect_handler(fd, payload->remote_addr); 
-			}
 		}
 		break;
 	default:
-		g_log<CTRL>("unknown payload type", regid, msg);
+		g_log<CTRL>("unknown payload type ", id, msg);
 		break;
 	}
 	read_queue.cursor(0);
