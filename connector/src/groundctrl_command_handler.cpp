@@ -234,6 +234,8 @@ void handler::receive_header() {
 static uint32_t g_message_ids = 1;
 
 void handler::receive_payload() {
+
+	static unsigned int lbalance(0);
 	wrapped_buffer<uint8_t> readbuf = read_queue.extract_buffer();
 	const struct message *msg = (const struct message*) readbuf.const_ptr();
 
@@ -270,7 +272,8 @@ void handler::receive_payload() {
 		{
 			/* TODO: have this more smartly load balance. For now, just cycle through */
 			auto it = g_childmap.begin();
-			advance(it, rand() % g_childmap.size());
+			lbalance = (lbalance + 1) % g_childmap.size();
+			advance(it, lbalance);
 			it->second.send(msg, sizeof(*msg) + ntoh(msg->length));
 
 		}

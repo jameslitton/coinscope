@@ -55,7 +55,6 @@ uint8_t handler::get_interests(handlers::accept_handler<handler> *h) {
 
 handler::handler(int fd, uint8_t _interests) 
 	: interests(_interests), events(ev::NONE), write_queue(), io() {
-	cerr << "Instantiating new output handler on fd " << fd << "\n";
 	io.set<handler, &handler::io_cb>(this);
 	io.set(fd, events);
 	io.start(); 
@@ -98,7 +97,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 			} 
 
 			if (r == 0) {
-				cerr << "Disconnect\n";
+				/* disconnect */
 				suicide();
 				return;
 			}

@@ -47,6 +47,9 @@ int main(int argc, char * argv[] ) {
 	handlers::accept_handler<output_cxn::handler> debug_handler(unix_sock_server(client_dir + "debug", 5, true));
 	output_cxn::handler::set_interest(&debug_handler, (uint8_t)DEBUG);
 
+	handlers::accept_handler<output_cxn::handler> ground_handler(unix_sock_server(client_dir + "ground", 5, true));
+	output_cxn::handler::set_interest(&ground_handler, (uint8_t)GROUND);
+
 	handlers::accept_handler<output_cxn::handler> ctrl_handler(unix_sock_server(client_dir + "ctrl", 5, true));
 	output_cxn::handler::set_interest(&ctrl_handler, (uint8_t)CTRL);
 

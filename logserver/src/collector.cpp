@@ -17,7 +17,7 @@ void collector::append(wrapped_buffer<uint8_t> &&data, size_t len) {
 	}
 	set<output_cxn::handler *> morose;
 	for(auto it = queues.begin(); it != queues.end(); ++it) {
-		if (it->first->interested((data.const_ptr())[0])) {
+		if (it->first->interested((data.const_ptr())[4])) {
 			it->second.total_size += p.len;
 			it->second.queue.push_front(p);
 			int events = it->first->get_events();

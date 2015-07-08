@@ -129,7 +129,7 @@ struct combined_version get_version(const string &user_agent,
 	/* copy bitcoinified user agent */
 	copy(bitcoin_agent.cbegin(), bitcoin_agent.cend(), rv.user_agent());
 	if (!g_last_block) {
-		g_last_block = cfg->lookup("connector.bitcoin.start_height");
+		g_last_block = cfg->lookup("connectors.bitcoin.start_height");
 	}
 	rv.start_height(g_last_block);
 	rv.relay(true);
@@ -152,7 +152,7 @@ unique_ptr<struct packed_message> get_message(const char *command, const uint8_t
 
 	/* TODO: special version for zero payload for faster allocation */
 	unique_ptr<struct packed_message> rv((struct packed_message *) ::operator new(sizeof(struct packed_message) + len));
-	rv->magic = (uint64_t)cfg->lookup("connector.bitcoin.magic");
+	rv->magic = (uint64_t)cfg->lookup("connectors.bitcoin.magic");
 	bzero(rv->command, sizeof(rv->command));
 	strncpy(rv->command, command, sizeof(rv->command));
 	rv->length = len;

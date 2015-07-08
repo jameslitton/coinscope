@@ -2,6 +2,7 @@
 #define NETWRAP_HPP
 
 #include <cstring>
+#include <cassert>
 
 #include <unistd.h>
 #include <sys/socket.h>

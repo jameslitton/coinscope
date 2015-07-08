@@ -17,6 +17,7 @@ log_buffer *g_log_buffer;
 uint32_t log_buffer::fixed_id = ~0;
 
 const static size_t store_size(4096);
+//const static size_t store_size(1);
 
 size_t g_log_cursor(0);
 wrapped_buffer<uint8_t> g_log_store(store_size);
@@ -48,6 +49,7 @@ log_buffer::log_buffer(int fd) : write_queue(), fd(fd), io(), id_netorder(0) {
 		   spike those kids and get them to reassign */
 
 		std::uniform_int_distribution<uint32_t> dis(0, std::numeric_limits<uint32_t>::max());
+		fixed_id = dis(gen);
 
 	}
 
@@ -104,8 +106,9 @@ template <> void g_log<BITCOIN>(uint32_t update_type, uint32_t handle_id, const 
                                 const struct sockaddr_in &local, const char * text, uint32_t text_len) {
 	uint64_t net_time = hton((uint64_t)ev::now(ev_default_loop()));
 
+	cerr << "Size of netorder is " << sizeof(g_log_buffer->id_netorder) << endl;
 	size_t len = 1 + sizeof(net_time) + sizeof(handle_id) + sizeof(update_type) +
-		2*sizeof(remote) + sizeof(text_len) + text_len + 4 /* sid */;
+		2*sizeof(remote) + sizeof(text_len) + text_len + sizeof(g_log_buffer->id_netorder);
 
 	if (store_size == 1 || len + 4 > g_log_store.allocated() - g_log_cursor) {
 		if (g_log_cursor > 0) { /* yes, may conceivably just want to grow buffer for sufficiently small cursors... */
@@ -172,11 +175,11 @@ template <> void g_log<BITCOIN>(uint32_t update_type, uint32_t handle_id, const 
 	g_log_cursor += cur_ptr - base_ptr;
 }
 
-template <> void g_log<BITCOIN_MSG>(uint32_t id, bool is_sender, const struct bitcoin::packed_message *m) {
+template <> void g_log<BITCOIN_MSG>(uint32_t handle_id, bool is_sender, const struct bitcoin::packed_message *m) {
 
 	uint64_t net_time = hton((uint64_t)ev::now(ev_default_loop()));
-	uint32_t net_id = hton(id);
-	size_t len = 1 + sizeof(net_time) + sizeof(net_id) + 1 + sizeof(*m) + m->length + 4 /* sid */;
+	uint32_t net_id = hton(handle_id);
+	size_t len = 1 + sizeof(net_time) + sizeof(net_id) + 1 + sizeof(*m) + m->length + sizeof(g_log_buffer->id_netorder);
 
 	if (len + 4 > g_log_store.allocated() - g_log_cursor) {
 		if (g_log_cursor > 0) {

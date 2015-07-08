@@ -39,7 +39,7 @@ int main(int argc, char *argv[]) {
 
 	const libconfig::Config *cfg(get_config());
 
-	int sock = unix_sock_client((const char*)cfg->lookup("connector.control_path"), false);
+	int sock = unix_sock_client((const char*)cfg->lookup("ground_ctrl.control_path"), false);
 
 	string root((const char*)cfg->lookup("logger.root"));
 	mkdir(root.c_str(), 0777);

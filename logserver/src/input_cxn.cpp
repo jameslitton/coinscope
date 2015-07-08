@@ -36,7 +36,6 @@ void handler::handle_accept(handlers::accept_handler<handler> *, int fd) {
 
 handler::handler(int fd) 
 	: read_queue(4), write_queue(), state(RECV_HEADER), io() {
-	cerr << "Instantiating new input handler " << endl;
 	io.set<handler, &handler::io_cb>(this);
 	io.start(fd, ev::READ|ev::WRITE);
 }
@@ -54,8 +53,6 @@ void handler::io_cb(ev::io &watcher, int revents) {
 					return;
 				}
 				if (r == 0) { /* got disconnected! */
-					/* LOG disconnect */
-					cerr << "Remote disconnect" << endl;
 					suicide();
 					return;
 				}
@@ -69,7 +66,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 				} else {
 					/* item needs to be handled */
 					wrapped_buffer<uint8_t> p = read_queue.extract_buffer();
-					collector::get().append(move(p), read_queue.cursor()/*, id */);
+					collector::get().append(move(p), read_queue.cursor());
 					read_queue.cursor(0);
 					read_queue.to_read(4);
 					state = RECV_HEADER;
@@ -92,7 +89,7 @@ void handler::io_cb(ev::io &watcher, int revents) {
 			} 
 
 			if (r == 0) {
-				cerr << "Disconnect\n";
+				/* disconnect */
 				suicide();
 				return;
 			}
