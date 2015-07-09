@@ -45,4 +45,8 @@ wrapped_buffer<uint8_t> child_handler::recv(size_t len) {
 	return buffer;
 }
 
-child_handler::~child_handler() { if (sock != -1) close(sock); };
+child_handler::~child_handler() {
+	if (sock != -1) {
+		close(sock);
+	}
+};

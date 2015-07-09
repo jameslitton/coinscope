@@ -106,7 +106,6 @@ template <> void g_log<BITCOIN>(uint32_t update_type, uint32_t handle_id, const 
                                 const struct sockaddr_in &local, const char * text, uint32_t text_len) {
 	uint64_t net_time = hton((uint64_t)ev::now(ev_default_loop()));
 
-	cerr << "Size of netorder is " << sizeof(g_log_buffer->id_netorder) << endl;
 	size_t len = 1 + sizeof(net_time) + sizeof(handle_id) + sizeof(update_type) +
 		2*sizeof(remote) + sizeof(text_len) + text_len + sizeof(g_log_buffer->id_netorder);
 

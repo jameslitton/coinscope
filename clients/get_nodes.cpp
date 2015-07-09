@@ -78,7 +78,8 @@ int main(int argc, char *argv[]) {
 				        }
 				        data_len = mult * page_size;
 				        return [data](struct connection_info *info, size_t elt) {
-					        cout << "handle_id: " << ntoh(info->handle_id) << endl;
+					        uint32_t hid = ntoh(info->handle_id);
+					        cout << "handle_id: " << hid << " (" << (hid >> 30) << ", " << (hid & 0x3fffffff) << ")\n";
 					        cout << "remote: " << *((struct sockaddr*)&info->remote_addr) << endl;
 					        cout << "local: " << *((struct sockaddr*)&info->local_addr) << endl;
 					        cout << "------------------------------------------------------------------------\n";

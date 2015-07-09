@@ -36,8 +36,35 @@ handler_set g_inactive_handlers;
 
 uint32_t handler::id_pool = 0;
 
+static map<uint32_t, vector<uint32_t> > g_messages; /* hid, local message_id(s) */
+/* both this and its analog in command_handler are probably better as members in the class */
+
+
+static void delete_hid_messages(uint32_t handle_id) {
+	static struct easy::command_msg cmsg(COMMAND_DELETE_MSG, 0, nullptr, 0);
+	for(auto &mid : g_messages[handle_id]) {
+		for(auto &p : g_childmap) {
+			auto &child = p.second;
+			if (child.messages.find(mid) == child.messages.end()) {
+				g_log<ERROR>("Could not find message in child list");
+			} else {
+				cmsg.message_id(child.messages[mid]);
+				pair<wrapped_buffer<uint8_t>, size_t> pkg = cmsg.serialize();
+				child.send(pkg.first, pkg.second);
+				child.messages.erase(mid);
+			}
+		}
+	}
+	g_messages.erase(handle_id);
+
+}
 
 handler::~handler() {
+	/* delete any messages of this guy */
+
+	delete_hid_messages(this->id);
+
+
 	if (io.fd >= 0) {
 		close(io.fd);
 		io.stop();
@@ -66,7 +93,9 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 				wrapped_buffer<uint8_t> buf(child.recv(sizeof(len)));
 				memcpy((uint8_t*) &len, buf.const_ptr(), sizeof(len));
 				len = ntoh(len);
-				buffers.emplace_back(child.recv(len), len);
+				if (len) {
+					buffers.emplace_back(child.recv(len), len);
+				}
 				total += len;
 			}
 
@@ -162,7 +191,7 @@ void handler::handle_message_recv(const struct command_msg *msg) {
 		}
 		break;
 	default:
-		g_log<CTRL>("UNKNOWN COMMAND_MSG COMMAND: ", msg->command);
+		g_log<GROUND>("UNKNOWN COMMAND_MSG COMMAND: ", msg->command);
 		break;
 	}
 }
@@ -195,8 +224,8 @@ void handler::receive_header() {
 			uint32_t oldid = id;
 			/* changing id and sending it. */
 
-			g_log<CTRL>("UNREGISTERING", oldid);
-			g_log<CTRL>("REGISTERING", id);
+			g_log<GROUND>("UNREGISTERING", oldid);
+			g_log<GROUND>("REGISTERING", id);
 
 			uint32_t netorder = hton(id);
 			write_queue.append((uint8_t*)&netorder, sizeof(netorder));
@@ -206,21 +235,13 @@ void handler::receive_header() {
 
 			g_active_handlers.insert(this);
 
-			struct easy::command_msg cmsg(COMMAND_DELETE_MSG, 0, nullptr, 0);
-			for(auto &p : g_childmap) {
-				auto &child = p.second;
-				for(auto &mp : child.messages) {
-					cmsg.message_id(mp.second);
-					pair<wrapped_buffer<uint8_t>, size_t> pkg = cmsg.serialize();
-					child.send(pkg.first, pkg.second);
-				}
-				child.messages.clear();
-			}
+			delete_hid_messages(oldid);
+
 
 		} else {
 			ostringstream oss("Unknown message: ");
 			oss << msg;
-			g_log<CTRL>(oss.str());
+			g_log<GROUND>(oss.str());
 			/* command and bitcoin payload messages always have a payload */
 		}
 		read_queue.cursor(0);
@@ -249,6 +270,7 @@ void handler::receive_payload() {
 		/* GC register message with each connector, map their ids to a single id and send that back */
 		{
 			uint32_t local_message_id = g_message_ids++;
+			g_messages[this->id].push_back(local_message_id);
 					
 			for(auto &p : g_childmap) {
 				auto &child = p.second;
@@ -279,7 +301,7 @@ void handler::receive_payload() {
 		}
 		break;
 	default:
-		g_log<CTRL>("unknown payload type ", id, msg);
+		g_log<GROUND>("unknown payload type ", id, msg);
 		break;
 	}
 	read_queue.cursor(0);
@@ -302,7 +324,7 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 
 			if (r == 0) { /* got disconnected! */
 				/* LOG disconnect */
-				g_log<CTRL>("Orderly disconnect", id);
+				g_log<GROUND>("Orderly disconnect", id);
 				suicide();
 				return;
 			}
@@ -335,6 +357,7 @@ void handler::suicide() {
 		g_active_handlers.erase(this);
 		g_inactive_handlers.insert(this);
 	}
+
 }
 
 void handler::do_write(ev::io &watcher, int /* revents */) {

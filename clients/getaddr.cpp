@@ -524,25 +524,32 @@ int main(int argc, char *argv[]) {
 
 	const libconfig::Config *cfg(get_config());
 
-	libconfig::Setting &list = cfg->lookup("connector.bitcoin.listeners");
-	for(int index = 0; index < list.getLength(); ++index) {
-		libconfig::Setting &setting = list[index];
-		string family((const char*)setting[0]);
-		string ipv4((const char*)setting[1]);
-		uint16_t port((int)setting[2]);
-		struct sockaddr_in bound_addr;
-		bzero(&bound_addr, sizeof(bound_addr));
-		bound_addr.sin_family = AF_INET;
-		bound_addr.sin_port = htons(port);
-		if (inet_pton(AF_INET, ipv4.c_str(), &bound_addr.sin_addr) != 1) {
-			cerr << "Bad address format on address " <<  index << ": " << strerror(errno) << endl;
-			abort();
+	libconfig::Setting &connectors = cfg->lookup("connectors.instances");
+	
+	for(int c_idx = 0; c_idx < connectors.getLength(); ++c_idx) {
+		string path("connectors.instances.[");
+		path += '0' + c_idx;
+		path += ']';
+		
+		libconfig::Setting &list = cfg->lookup(path + ".bitcoin.listeners");
+		for(int index = 0; index < list.getLength(); ++index) {
+			libconfig::Setting &setting = list[index];
+			string family((const char*)setting[0]);
+			string ipv4((const char*)setting[1]);
+			uint16_t port((int)setting[2]);
+			struct sockaddr_in bound_addr;
+			bzero(&bound_addr, sizeof(bound_addr));
+			bound_addr.sin_family = AF_INET;
+			bound_addr.sin_port = htons(port);
+			if (inet_pton(AF_INET, ipv4.c_str(), &bound_addr.sin_addr) != 1) {
+				cerr << "Bad address format on address " <<  index << ": " << strerror(errno) << endl;
+				abort();
+			}
+			g_bound_addrs.insert(bound_addr);
 		}
-		g_bound_addrs.insert(bound_addr);
+
 	}
-
-
-
+  
 
 	string root((const char*)cfg->lookup("logger.root"));
 	string client_dir = root + "clients/";
@@ -633,7 +640,7 @@ int main(int argc, char *argv[]) {
 #else
 
 		g_log<CLIENT>("Initiating getaddr");
-		g_pending_getaddrs.push_back(ctrl::BROADCAST_TARGET);
+		//g_pending_getaddrs.push_back(ctrl::BROADCAST_TARGET);
 
 #endif
 
