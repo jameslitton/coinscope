@@ -10,6 +10,7 @@
 #include <random>
 #include <utility>
 #include <iostream>
+#include <algorithm>
 #include <fstream>
 
 /* standard unix libraries */
@@ -46,7 +47,11 @@ namespace bc = bitcoin;
 
 map<int, child_handler> g_childmap; /* idx -> child_handler */
 
-void standup_getup_children(char *argv[], const int *which) { /* which is terminated by -1, a list of which children to spin up */
+static void standup_getup_children(char *pathr, const int *which) { /* which is terminated by -1, a list of which children to spin up */
+	static string path_root("./");
+	if (pathr) {
+		path_root = dirname(pathr);
+	}
 	vector<pair< pid_t, int> > children; /* vector location specifies index */
 	const libconfig::Config *cfg(get_config());
 
@@ -73,18 +78,75 @@ void standup_getup_children(char *argv[], const int *which) { /* which is termin
 				throw runtime_error(strerror(errno));
 			}
 			/* this is cludgy, but who cares */
-			string path(dirname(argv[0]));
+			string path(path_root);
 			path += "/main";
 			string config_arg("--configfile="); config_arg += ((const char*)cfg->lookup("version").getSourceFile());
 			string daemon_arg("--daemonize=0");
 			string inst_arg("--instance=");
 			inst_arg += '0' + *which;
 			string tom_arg("--tom=1");
+			cerr << "Exec: " << path << ' ' << config_arg << ' ' << daemon_arg << ' ' << inst_arg << ' ' << tom_arg << endl;
+			sleep(rand() % 5);
+			throw "fuck off";
 			execl(path.c_str(), path.c_str(), config_arg.c_str(), daemon_arg.c_str(), inst_arg.c_str(), tom_arg.c_str(), (char*)NULL);
 			throw runtime_error(strerror(errno));
 		}
 	}
 }
+
+
+
+static void child_watcher(ev::child &c, int /*revents*/) {
+	/* c.pid -> pid it was set to watch */
+	/* c.rpid -> pid signal received for */
+	/* c.rstatus -> status return code from wait */
+	bool restart(false);
+	if (WIFEXITED(c.rstatus)) {
+		g_log<GROUND>("Child ", c.rpid, " exited with status ", (int) WEXITSTATUS(c.rstatus));
+		restart = true;
+	} else if (WIFSIGNALED(c.rstatus)) {
+		g_log<GROUND>("Child ", c.rpid, " terminated by signal ", (int) WTERMSIG(c.rstatus));
+		restart = true;
+	} else if (WIFSTOPPED(c.rstatus)) {
+		g_log<GROUND>("Child ", c.rpid, " stopped. Leaving stopped");
+	} else {
+		g_log<ERROR>("Child ", c.rpid, " did something I do not handle. Status is ", c.rstatus, ". Since I am clueless, doing nothing");
+	}
+
+	if (restart) {
+		/* find the idx this child corresponds to and then GC it and relaunch it */
+		int idx(-1);
+		for(auto &p : g_childmap) {
+			if (p.second.get_pid() == c.rpid) {
+				idx = p.first;
+				break;
+			}
+		}
+		if (idx == -1) {
+			g_log<ERROR>("Could not find child ", c.rpid, ". Not launching new child");
+		} else {
+			g_log<GROUND>("Restarting child idx ", idx);
+			/* The truth is, children are not supposed to be getting
+			   killed. This is probably a crash, which is very sad news
+			   indeed. If the crash is repeating we can end up just
+			   sucking up processes, so the best thing is to relaunch
+			   children in a timer. This is a hassle and since this ought
+			   to be rare, just sleep 1 second (which will be sad for
+			   clients, granted) before trying to standup the children */
+
+			/* it should be noted that if the connectors are immediately
+			   crashing, this will probably never reach the main event
+			   loop, so no logs will get printed from GROUND, but hey,
+			   shit isn't working. If the exec line printed a zillion
+			   times, that's a clue */
+
+			for(unsigned int sec(1); sec; sec = sleep(sec));
+			int which[] = { idx, -1};
+			standup_getup_children(nullptr, which);
+		}
+	}
+}
+
 
 /* because we do fork/exec in here, the assumption is that everything
    is CLOEXEC or is appropriately handled in standup/getup children */
@@ -105,12 +167,17 @@ int main(int argc, char *argv[]) {
 	/* okay, stand up children now. Note: nothing but stdin, stdout,
 	   and sterr are open right now. If this changes, cleanup in this
 	   function. */
-	int which[] = {0,1,-1};
-	/* TODO: read WHICH out of netmine.cfg, and reap/watch children exits */
-	/* TODO: check if any children are already running and just connect
-	   on that channel. Note, you'd have to clear prctl in the
-	   following function */
-	standup_getup_children(argv,which);
+	{
+		int length = cfg->lookup("connectors.instances").getLength();
+		vector<int> which(length);
+		iota(which.begin(), which.end(), 0);
+		which.push_back(-1);
+
+		/* TODO: check if any children are already running and just connect
+		   on that channel. Note, you'd have to clear prctl in the
+		   following function */
+		standup_getup_children(argv[0],which.data());
+	}
 
 
 	string root((const char*)cfg->lookup("logger.root"));
@@ -126,6 +193,11 @@ int main(int argc, char *argv[]) {
 	logwatch.set<log_watcher>(&logpath);
 	logwatch.set(10.0, 10.0);
 	logwatch.start();
+
+	ev::child childwatch;
+	childwatch.set<child_watcher>(nullptr);
+	childwatch.set(0);
+	childwatch.start();
 
 	const char *control_filename = cfg->lookup("ground_ctrl.control_path");
 	unlink(control_filename);
