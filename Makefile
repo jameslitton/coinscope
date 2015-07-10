@@ -17,5 +17,6 @@ clean:
 
 install: all
 	sudo ./installer.pl
+	sudo chown -R coinscope:coinscope /tmp/connector /tmp/logger/ /opt/coinscope
 
 .PHONY: all install clean

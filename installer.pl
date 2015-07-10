@@ -33,6 +33,7 @@ sub install {
 
 my @paths = qw(/etc/coinscope /opt/coinscope);
 @paths = (@paths, map { '/opt/coinscope/' . $_ } qw(connector logserver logclient clients tools));
+push(@paths, '/var/log/coinscope', '/tmp/logger', '/tmp/logger/clients');
 make_path(@paths, {verbose => 1, mode => 0755});
 
 foreach my $p (@paths) {
