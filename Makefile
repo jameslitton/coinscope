@@ -15,4 +15,7 @@ clean:
 	$(MAKE) clean -C shared
 	$(MAKE) clean -C tools
 
-.PHONY: all clean
+install: all
+	sudo ./installer.pl
+
+.PHONY: all install clean
