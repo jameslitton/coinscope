@@ -79,15 +79,13 @@ static void standup_getup_children(char *pathr, const int *which) { /* which is 
 			}
 			/* this is cludgy, but who cares */
 			string path(path_root);
-			path += "/main";
+			path += "/connector";
 			string config_arg("--configfile="); config_arg += ((const char*)cfg->lookup("version").getSourceFile());
 			string daemon_arg("--daemonize=0");
 			string inst_arg("--instance=");
 			inst_arg += '0' + *which;
 			string tom_arg("--tom=1");
 			cerr << "Exec: " << path << ' ' << config_arg << ' ' << daemon_arg << ' ' << inst_arg << ' ' << tom_arg << endl;
-			sleep(rand() % 5);
-			throw "fuck off";
 			execl(path.c_str(), path.c_str(), config_arg.c_str(), daemon_arg.c_str(), inst_arg.c_str(), tom_arg.c_str(), (char*)NULL);
 			throw runtime_error(strerror(errno));
 		}
