@@ -134,7 +134,7 @@ int main(int argc, char *argv[]) {
 	if (argc == 2) {
 		load_config(argv[1]);
 	} else {
-		load_config("../netmine.cfg");
+		load_config("/etc/coinscope/netmine.cfg");
 	}
 
 	const libconfig::Config *cfg(get_config());

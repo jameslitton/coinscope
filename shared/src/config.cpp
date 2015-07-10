@@ -55,7 +55,7 @@ int startup_setup(int argc, char * argv[], bool do_perms, int *instance, bool *i
    po::options_description desc("Options");
    desc.add_options()
       ("help", "Produce help message")
-      ("configfile", po::value<string>()->default_value("../netmine.cfg"), "specify the config file")
+      ("configfile", po::value<string>()->default_value("/etc/coinscope/netmine.cfg"), "specify the config file")
 	   ("daemonize", po::value<int>()->default_value(0), "daemonize")
 	   ("instance", po::value<int>()->default_value(0), "For connector instances, which am I")
 	   ("tom", po::value<int>()->default_value(0), "For connector instances, expect coordination from ground control");
