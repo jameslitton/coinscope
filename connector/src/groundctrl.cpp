@@ -95,6 +95,14 @@ static void standup_getup_children(char *pathr, const int *which) { /* which is 
 
 
 static void child_watcher(ev::child &c, int /*revents*/) {
+
+	/* TODO: When a child dies, should we push into the log that all of
+	   its connections are dead? This is extra fanciness that nothing
+	   else has. Would be nice for clients, but they can get it from
+	   the GROUND channel if they are inclined. Something to think
+	   about */
+
+
 	/* c.pid -> pid it was set to watch */
 	/* c.rpid -> pid signal received for */
 	/* c.rstatus -> status return code from wait */

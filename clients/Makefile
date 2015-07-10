@@ -1,10 +1,12 @@
 LDLIBS=-lcrypto -lconfig++ -lev -lpthread -lboost_program_options
 include ../makefile.defs
 
-all: connect get_nodes cycle getaddr kill_dupes
+all: connect get_nodes cycle getaddr kill_dupes getaddr_coordinator
 
 clean_extra: 
-	rm -rf connect spider get_nodes cycle getaddr getaddr_wrapped connect_harvester reconnector kill_dupes
+	rm -rf connect spider get_nodes cycle getaddr getaddr_wrapped connect_harvester reconnector kill_dupes getaddr_coordinator
+
+getaddr_coordinator: ../shared/config.o
 
 connect: ../shared/bitcoin.o ../shared/network.o ../shared/crypto.o ../shared/config.o ../shared/logger.o ../shared/write_buffer.o ../shared/wrapped_buffer.o ../shared/alloc_buffer.o ../shared/mmap_buffer.o bcwatch.o ../shared/read_buffer.o ../shared/connector.o
 

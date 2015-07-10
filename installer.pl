@@ -41,11 +41,12 @@ foreach my $p (@paths) {
 }
 
 my %tocopy = (
-           'connector' => [ [ qw(groundctrl groundctrl)], [ qw(main connector) ]],
-           'logserver' => [ [ qw(main logserver) ]],
-           'logclient' => [ [ qw(verbatim verbatim)], [ qw(console console) ]],
-           'clients' => [ [ qw(getaddr getaddr)], [ qw(get_nodes get_nodes) ]],
-           'tools' => [ [ qw(logchecker logchecker)], [ qw(logtruncate logtruncate) ]]
+              'connector' => [ [ qw(groundctrl groundctrl)], [ qw(main connector) ]],
+              'logserver' => [ [ qw(main logserver) ]],
+              'logclient' => [ [ qw(verbatim verbatim)], [ qw(console console) ]],
+              'clients' => [ [ qw(getaddr getaddr)], [ qw(get_nodes get_nodes) ],
+                             [ qw(getaddr_coordinator getaddr_coordinator) ]],
+              'tools' => [ [ qw(logchecker logchecker)], [ qw(logtruncate logtruncate) ]]
              );
 while(my ($directory, $files) = each %tocopy) {
 	my $from = "./${directory}/";

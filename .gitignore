@@ -6,6 +6,7 @@ clients/spider
 clients/cycle
 clients/getaddr
 clients/getaddr_wrapped
+clients/getaddr_coordinator
 clients/connect_harvester
 clients/reconnector
 clients/kill_dupes
@@ -13,6 +14,7 @@ tools/logchecker
 tools/logtruncate
 tools/logfixer
 connector/main
+connector/groundctrl
 logclient/console
 logclient/verbatim
 logserver/main
