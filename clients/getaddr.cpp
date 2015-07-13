@@ -85,6 +85,33 @@ inline bool do_sample() {
 	return x;
 }
 
+
+inline bool is_ipv4(const struct bitcoin::version_packed_net_addr &addr) {
+	static uint8_t prefix[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF };
+	return memcmp(prefix, addr.addr.ipv4.padding, 12) == 0;
+}
+
+
+
+inline bool valid_port(uint16_t port_netorder) {
+	static bool initialized(false);
+	static vector<uint16_t> ports; /* keep in netorder */
+	if (!initialized) {
+		const libconfig::Config *cfg(get_config());
+		libconfig::Setting &list = cfg->lookup("getaddr.ports");
+		for(int index = 0; index < list.getLength(); ++index) {
+			ports.push_back(hton( (uint16_t) ((int) list[index])) );
+		}
+		initialized = true;
+	}
+	bool rv(!ports.size());
+	for(auto it = ports.cbegin(); !rv && it != ports.cend(); ++it) {
+		rv = *it == port_netorder;
+	}
+	return rv;
+
+}
+
 void register_getaddr(int sock) {
 	/* register getaddr message */
 	unique_ptr<struct bitcoin::packed_message> getaddr(bitcoin::get_message("getaddr"));
@@ -378,7 +405,6 @@ public:
 								it->second->enqueue();
 							}
 
-
 #ifdef HARVEST_CXN
 
 							uint8_t bits = 0;
@@ -390,7 +416,7 @@ public:
 								struct sockaddr_in to_insert;
 								bzero(&to_insert, sizeof(to_insert));
 								for(size_t i = 0; i < entries; ++i) {
-									if (!is_private(addrs[i].rest.addr.ipv4.as.number) && do_sample()) {
+									if (is_ipv4(addrs[i].rest) && !is_private(addrs[i].rest.addr.ipv4.as.number) && do_sample() && valid_port(addrs[i].rest.port)) {
 										/* TODO: verify it is ipv4, since we don't support ipv6 */
 										memcpy(&to_insert.sin_addr, &addrs[i].rest.addr.ipv4.as.in_addr, sizeof(to_insert.sin_addr));
 										to_insert.sin_port = addrs[i].rest.port;
