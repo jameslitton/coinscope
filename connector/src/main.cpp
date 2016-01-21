@@ -35,10 +35,13 @@
 #include "logger.hpp"
 #include "network.hpp"
 #include "config.hpp"
+#include "blacklist.hpp"
 
 using namespace std;
 
 namespace bc = bitcoin;
+
+ipaddr_set g_blacklist;
 
 
 static void log_watcher(ev::timer &w, int /*revents*/) {
@@ -50,6 +53,40 @@ static void log_watcher(ev::timer &w, int /*revents*/) {
 			g_log<ERROR>(e.what());
 		}
 	}
+}
+
+static void load_blacklist() {
+	const libconfig::Config *cfg(get_config());
+	const char *filename = cfg->lookup("connector.blacklist");
+	ifstream file(filename);;
+
+	if (file) {
+		g_blacklist.clear();
+
+		string line;
+		struct sockaddr_in entry;
+		bzero(&entry, sizeof(entry));
+		entry.sin_family = AF_INET;
+
+		while(getline(file, line)) {
+			if (inet_pton(AF_INET, line.c_str(), &entry.sin_addr) != 1) {
+				g_log<ERROR>("Invalid blacklist entry", line);
+			} else {
+				g_blacklist.insert(entry);
+			}
+		}
+	
+		g_log<CONNECTOR>("Loading blacklist, received", g_blacklist.size(), "unique entries");
+	} else {
+		g_log<ERROR>("Could not open blacklist file");
+	}
+
+	file.close();
+
+}
+
+static void hup_watcher(ev::sig & /*s*/, int /* revents */) {
+	load_blacklist();
 }
 
 
@@ -93,6 +130,11 @@ int main(int argc, char *argv[]) {
 	logwatch.set<log_watcher>(&logpath);
 	logwatch.set(10.0, 10.0);
 	logwatch.start();
+
+	ev::sig sigwatch;
+	sigwatch.set<hup_watcher>();
+	sigwatch.set(SIGHUP);
+	sigwatch.start();
 
 	const char *control_filename = cfg->lookup("connector.control_path");
 	unlink(control_filename);
@@ -168,6 +210,8 @@ int main(int argc, char *argv[]) {
 		g_log<CONNECTOR>("Full config: ", s);
 		cfile.close();
 	}
+
+	load_blacklist();
 	
 	while(true) {
 		/* add timer to attempt recreation of lost control channel */

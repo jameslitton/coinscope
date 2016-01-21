@@ -32,9 +32,6 @@ const uint32_t SEND_VERSION_INIT = 0x20000; /* we initiated the handshake */
 const uint32_t SEND_VERSION_REPLY = 0x40000;
    
 
-const std::string USER_AGENT("/Satoshi:0.9.2/");
-
-
 class handler {
 private:
 	read_buffer read_queue; /* application needs to read and act on this data */
