@@ -15,6 +15,7 @@
 #include "logger.hpp"
 #include "config.hpp"
 #include "crypto.hpp"
+#include "blacklist.hpp"
 
 using namespace std;
 
@@ -29,6 +30,18 @@ static int g_ping_iv = -1;
 static double g_active_ping_iv = -1;
 
 static set<connect_handler *> g_inactive_connection_handlers; /* to be deleted */
+
+static const string & user_agent() {
+	static bool loaded(false);
+	static string agent;
+
+	if (!loaded) {
+		const libconfig::Config *cfg(get_config());
+		agent = (const char*)cfg->lookup("connector.user_agent");
+	}
+	cout << "agent set to " << agent << endl;
+	return agent;
+}
 
 static const sockaddr_in * external_addr() { // This picks an externally bound address at random to broadcast as our external address
 	static bool done(false);
@@ -90,18 +103,29 @@ connect_handler::connect_handler(int fd, const struct sockaddr_in &remote_addr)
 
 	g_inactive_connection_handlers.clear();
 
-	/* first try it */
-	int rv = connect(fd, (struct sockaddr*)&remote_addr_, sizeof(remote_addr_));
-	if (rv == 0) {
-		g_log<DEBUG>("No need to do non-blocking connect, setup was instant");
-		setup_handler(fd);
-		g_inactive_connection_handlers.insert(this);
-	} else if (errno == EINPROGRESS || errno == EALREADY) {
-		io.set<connect_handler, &connect_handler::io_cb>(this);
-		io.set(fd, ev::WRITE); /* mark as writable once the connection comes in */
-		io.start();
+	char *err(nullptr);
+	char bl_emsg[] = "BLACKLISTED";
+
+
+	if (g_blacklist.count(remote_addr_) > 0) {
+		err = bl_emsg;
 	} else {
-		char *err = strerror(errno);
+		/* first try it */
+		int rv = connect(fd, (struct sockaddr*)&remote_addr_, sizeof(remote_addr_));
+		if (rv == 0) {
+			g_log<DEBUG>("No need to do non-blocking connect, setup was instant");
+			setup_handler(fd);
+			g_inactive_connection_handlers.insert(this);
+		} else if (errno == EINPROGRESS || errno == EALREADY) {
+			io.set<connect_handler, &connect_handler::io_cb>(this);
+			io.set(fd, ev::WRITE); /* mark as writable once the connection comes in */
+			io.start();
+		} else {
+			err = strerror(errno);
+		}
+	}
+
+	if (err) { /* oh no, something sad happened */
 		uint32_t len = strlen(err);
 		close(fd);
 		struct sockaddr_in local;
@@ -110,6 +134,8 @@ connect_handler::connect_handler(int fd, const struct sockaddr_in &remote_addr)
 		g_log<BITCOIN>(CONNECT_FAILURE, 0, remote_addr_, local, err, len+1);
 		g_inactive_connection_handlers.insert(this);
 	}
+
+
 }
 
 void connect_handler::setup_handler(int fd) { 
@@ -196,18 +222,24 @@ void accept_handler::io_cb(ev::io &watcher, int /*revents*/) {
 		return;
 	}
 
-	sockaddr_in local;
-	socklen_t socklen = sizeof(local);
-	bzero(&local,sizeof(local));
-	if (getsockname(client, (struct sockaddr*) &local, &socklen) != 0) {
-		g_log<ERROR>(strerror(errno));
-	} 
+	if (g_blacklist.count(addr)) {
+		g_log<ERROR>("Blacklisted ip address attempted to connect", addr);
+		close(client);
+	} else {
 
-	/* TODO: if can be converted to smarter pointers sensibly, consider, but
-	   since libev doesn't use them makes it hard */
-	unique_ptr<handler> h(new handler(client, RECV_VERSION_REPLY_HDR, addr, local));
-	g_active_handlers.insert(make_pair(h->get_id(), move(h)));
-	g_inactive_handlers.clear();
+		sockaddr_in local;
+		socklen_t socklen = sizeof(local);
+		bzero(&local,sizeof(local));
+		if (getsockname(client, (struct sockaddr*) &local, &socklen) != 0) {
+			g_log<ERROR>(strerror(errno));
+		} 
+
+		/* TODO: if can be converted to smarter pointers sensibly, consider, but
+		   since libev doesn't use them makes it hard */
+		unique_ptr<handler> h(new handler(client, RECV_VERSION_REPLY_HDR, addr, local));
+		g_active_handlers.insert(make_pair(h->get_id(), move(h)));
+		g_inactive_handlers.clear();
+	}
 }
 
 
@@ -232,7 +264,7 @@ handler::handler(int fd, uint32_t a_state, const struct sockaddr_in &a_remote_ad
 		io.set(fd, ev::WRITE);
 		/* TODO: profile to see if extra copies are worth optimizing away */
 		const struct sockaddr_in * external = external_addr();
-		struct combined_version vers(get_version(USER_AGENT, *external, remote_addr));
+		struct combined_version vers(get_version(user_agent(), *external, remote_addr));
 		unique_ptr<struct packed_message> m(get_message("version", vers.as_buffer(), vers.size));
 		g_log<BITCOIN_MSG>(id, true, m.get());
 		write_queue.append((const uint8_t *) m.get(), m->length + sizeof(*m));
@@ -485,7 +517,7 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 				read_queue.to_read(sizeof(struct packed_message));
 					
 				const struct sockaddr_in * external = external_addr();
-				struct combined_version vers(get_version(USER_AGENT, remote_addr, *external));
+				struct combined_version vers(get_version(user_agent(), remote_addr, *external));
 				unique_ptr<struct packed_message> vmsg(get_message("version", vers.as_buffer(), vers.size));
 
 				append_for_write(move(vmsg));
