@@ -23,6 +23,9 @@ namespace ctrl {
 handler_set g_active_handlers;
 handler_set g_inactive_handlers;
 
+/* debugging aide */
+int32_t g_active_descriptors(0);
+
 uint32_t handler::id_pool = 0;
 
 
@@ -48,8 +51,9 @@ map<uint32_t, map<uint32_t, registered_msg> > g_messages; /* handle_id, register
 handler::~handler() {
 	g_messages.erase(id);
 	if (io.fd >= 0) {
-		io.stop();
+      --g_active_descriptors;
 		close(io.fd);
+		io.stop();
 	}
 }
 
@@ -274,8 +278,9 @@ void handler::do_read(ev::io &watcher, int /* revents */) {
 
 void handler::suicide() {
 
-	io.stop();
+   --g_active_descriptors;
 	close(io.fd);
+	io.stop();
 	io.fd = -1;
 
 	if (g_active_handlers.find(this) != g_active_handlers.end()) {
@@ -337,29 +342,30 @@ accept_handler::accept_handler(int fd)
 }
 
 accept_handler::~accept_handler() {
-	io.stop();
 	close(io.fd);
+	io.stop();
 }
 
 void accept_handler::io_cb(ev::io &watcher, int /* revents */) {
 	struct sockaddr addr = {0, {0}};
 	socklen_t len(sizeof(addr));
-	int client;
+	int client(-1);;
 	try {
 		client = Accept(watcher.fd, &addr, &len);
+      ++g_active_descriptors;
 		fcntl(client, F_SETFL, O_NONBLOCK);
 	} catch (network_error &e) {
-		if (e.error_code() != EWOULDBLOCK && e.error_code() != EAGAIN) {
-			g_log<ERROR>(e.what(), "(command_handler)");
-			watcher.stop();
-			close(watcher.fd);
-			delete this;
-
-			/* not sure entirely what recovery policy should be on dead control channels, probably reattempt acquisition, this is a TODO */
+		if (e.error_code() != EWOULDBLOCK && e.error_code() != EAGAIN && e.error_code() != ECONNABORTED && e.error_code() != EINTR) {
+			g_log<ERROR>(e.what(), "Number active handlers: ", g_active_descriptors, " (command_handler)");
+         if (client >= 0) {
+            --g_active_descriptors;
+            close(client);
+         }
 			/*
-			  if (watchers.erase(watcher)) {
+			  TODO: Put in a good recovery policy here 
+			  watcher.stop();
+			  close(watcher.fd);
 			  delete this;
-			  }
 			*/
 		}
 		return;
