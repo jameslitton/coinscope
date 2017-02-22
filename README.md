@@ -1,9 +1,10 @@
 # coinscope
 An observation and testing framework for bitcoin or bitcoin based altcoins
 
-This software was written to allow for easy measurement and communication with the entire set of bitcoin and bitcoin based altcoins. 
+This software was written to allow for easy measurement and communication with the entire set of bitcoin and bitcoin based altcoins.
 
-The result of that work is available here. http://cs.umd.edu/projects/coinscope/
+This work was done in collaboration with Andrew Miller, Andrew Pachulski, Neal Gupta,
+Dave Levin, Neil Spring, and Bobby Bhattacharjee. The result of that work is available here. http://cs.umd.edu/projects/coinscope/.
 
 I have been waiting to open source this for quite a while and have delayed until I documented it. This seems it may never come without nudges by others, so I am releasing it now with sparse documentation. I will fill in the documentation in response to questions or in the unlikely event I get bored.
 
@@ -51,9 +52,9 @@ For clients, the place to start may be the connect client. Just modify the sourc
 
 If you prefer to use Python instead of C, python libraries are in the libraries/python directory.
 
-## Horde
+## Horde Branch
 
-As mentioned above, Horde is a system that allows for multiple connector instances. It is less tested than the master branch, but at some point in the future the intention is that it will be merged with the master branch. Bug reports/fixes welcome.
+As mentioned above, the horde is a system that allows for multiple connector instances. It is less tested than the master branch, but at some point in the future the intention is that it will be merged with the master branch. Bug reports/fixes welcome.
 
 
 
