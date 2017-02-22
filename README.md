@@ -1,10 +1,10 @@
 # coinscope
 An observation and testing framework for bitcoin or bitcoin based altcoins
 
-This software was written to allow for easy measurement and communication with the entire set of bitcoin and bitcoin based altcoins.
+This software was written to allow for easy measurement and communication with the entire set of bitcoin and bitcoin based altcoins and thus far has culminated in a paper on the topic.
 
-This work was done in collaboration with Andrew Miller, Andrew Pachulski, Neal Gupta,
-Dave Levin, Neil Spring, and Bobby Bhattacharjee. The result of that work is available here. http://cs.umd.edu/projects/coinscope/.
+The paper was written in collaboration with Andrew Miller, James Litton, Andrew Pachulski, Neal Gupta,
+Dave Levin, Neil Spring, and Bobby Bhattacharjee. The project page is available here. http://cs.umd.edu/projects/coinscope/.
 
 I have been waiting to open source this for quite a while and have delayed until I documented it. This seems it may never come without nudges by others, so I am releasing it now with sparse documentation. I will fill in the documentation in response to questions or in the unlikely event I get bored.
 
