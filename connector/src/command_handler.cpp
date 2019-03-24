@@ -3,6 +3,7 @@
 #include <sstream>
 #include <map>
 #include <algorithm>
+#include <functional>
 
 #include <unistd.h>
 #include <arpa/inet.h>
